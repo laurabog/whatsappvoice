@@ -21,6 +21,7 @@ const envSchema = z.object({
   TRANSCRIPT_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   JOB_METADATA_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   PENDING_LABEL_TTL_MINUTES: z.coerce.number().int().positive().default(30),
+  WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   TEMP_AUDIO_DIR: z.string().min(1).default('/tmp/whatsapp-summary-audio'),
   SENTRY_DSN: z.string().min(1).optional()
 });

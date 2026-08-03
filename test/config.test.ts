@@ -15,6 +15,7 @@ describe('loadConfig', () => {
     expect(config.OPENAI_TRANSCRIPTION_MODEL).toBe('gpt-4o-mini-transcribe');
     expect(config.MAX_AUDIO_DURATION_SECONDS).toBe(600);
     expect(config.TRANSCRIPT_RETENTION_DAYS).toBe(30);
+    expect(config.WORKER_POLL_INTERVAL_MS).toBe(5000);
   });
 
   it('coerces numeric environment values', () => {

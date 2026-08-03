@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { mapInboundMessageRow } from '../../src/db/repositories/inbound-messages.js';
+import { mapOutboundMessageRow } from '../../src/db/repositories/outbound-messages.js';
 import { mapPendingSenderLabelRow } from '../../src/db/repositories/pending-sender-labels.js';
 import { mapSummaryJobRow } from '../../src/db/repositories/summary-jobs.js';
+import { mapSummaryRow } from '../../src/db/repositories/summaries.js';
 import { mapTranscriptRow } from '../../src/db/repositories/transcripts.js';
 import { mapUserRow } from '../../src/db/repositories/users.js';
 
@@ -96,6 +98,49 @@ describe('repository row mappers', () => {
     });
   });
 
+  it('maps summary rows to app records', () => {
+    const now = new Date('2026-08-03T12:00:00.000Z');
+    const expiresAt = new Date('2026-09-02T12:00:00.000Z');
+
+    expect(
+      mapSummaryRow({
+        id: 'summary-id',
+        user_id: 'user-id',
+        inbound_message_id: 'message-id',
+        reference_code: null,
+        from_label: 'unknown sender',
+        from_label_confidence: 'unknown',
+        one_sentence_summary: 'One sentence.',
+        short_summary: 'Short summary.',
+        important_points_json: [],
+        questions_or_requests_json: ['Reply when you can.'],
+        dates_or_commitments_json: [],
+        reply_needed: true,
+        listening_recommendation: 'summary_enough',
+        created_at: now,
+        expires_at: expiresAt,
+        deleted_at: null
+      })
+    ).toEqual({
+      id: 'summary-id',
+      userId: 'user-id',
+      inboundMessageId: 'message-id',
+      referenceCode: null,
+      fromLabel: 'unknown sender',
+      fromLabelConfidence: 'unknown',
+      oneSentenceSummary: 'One sentence.',
+      shortSummary: 'Short summary.',
+      importantPoints: [],
+      questionsOrRequests: ['Reply when you can.'],
+      datesOrCommitments: [],
+      replyNeeded: true,
+      listeningRecommendation: 'summary_enough',
+      createdAt: now,
+      expiresAt,
+      deletedAt: null
+    });
+  });
+
   it('maps pending sender label rows to app records', () => {
     const now = new Date('2026-08-03T12:00:00.000Z');
     const expiresAt = new Date('2026-08-03T12:30:00.000Z');
@@ -147,6 +192,38 @@ describe('repository row mappers', () => {
       createdAt: now,
       expiresAt,
       deletedAt: null
+    });
+  });
+
+  it('maps outbound message rows to app records', () => {
+    const now = new Date('2026-08-03T12:00:00.000Z');
+
+    expect(
+      mapOutboundMessageRow({
+        id: 'outbound-id',
+        inbound_message_id: 'message-id',
+        user_id: 'user-id',
+        reply_kind: 'summary',
+        chunk_index: 0,
+        whatsapp_message_id: 'wamid.out',
+        status: 'sent',
+        body_sha256: 'abc123',
+        created_at: now,
+        sent_at: now,
+        error_code: null
+      })
+    ).toEqual({
+      id: 'outbound-id',
+      inboundMessageId: 'message-id',
+      userId: 'user-id',
+      replyKind: 'summary',
+      chunkIndex: 0,
+      whatsappMessageId: 'wamid.out',
+      status: 'sent',
+      bodySha256: 'abc123',
+      createdAt: now,
+      sentAt: now,
+      errorCode: null
     });
   });
 });

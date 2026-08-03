@@ -79,6 +79,29 @@ export function createPendingSenderLabelsRepository(db: DbClient) {
         userId
       ]);
       return result.rowCount ?? 0;
+    },
+
+    async consumeLatestForUser(userId: string, now: Date): Promise<PendingSenderLabelRecord | null> {
+      const result = await db.query<PendingSenderLabelRow>(
+        `
+          update pending_sender_labels
+          set consumed_at = $2
+          where id = (
+            select id
+            from pending_sender_labels
+            where user_id = $1
+              and consumed_at is null
+              and expires_at > $2
+            order by created_at desc
+            limit 1
+          )
+          returning *
+        `,
+        [userId, now]
+      );
+
+      const row = result.rows[0];
+      return row ? mapPendingSenderLabelRow(row) : null;
     }
   };
 }

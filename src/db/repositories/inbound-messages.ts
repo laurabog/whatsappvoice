@@ -162,6 +162,22 @@ export function createInboundMessagesRepository(db: DbClient) {
       }
 
       return mapInboundMessageRow(row);
+    },
+
+    async countAcceptedAudioForUserSince(userId: string, since: Date): Promise<number> {
+      const result = await db.query<{ count: string }>(
+        `
+          select count(*)::text as count
+          from inbound_messages
+          where user_id = $1
+            and received_at >= $2
+            and message_type = 'audio'
+            and status in ('queued', 'processing', 'completed')
+        `,
+        [userId, since]
+      );
+
+      return Number(result.rows[0]?.count ?? 0);
     }
   };
 }

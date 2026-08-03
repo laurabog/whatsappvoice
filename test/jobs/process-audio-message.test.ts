@@ -1,0 +1,229 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { PendingSenderLabelRecord } from '../../src/db/repositories/pending-sender-labels.js';
+import type { InsertSummaryInput, SummaryRecord } from '../../src/db/repositories/summaries.js';
+import type { InsertTranscriptInput, TranscriptRecord } from '../../src/db/repositories/transcripts.js';
+import type { AudioJobContext } from '../../src/jobs/job-store.js';
+import { createAudioMessageProcessor } from '../../src/jobs/process-audio-message.js';
+import { FakeSummarizer } from '../../src/services/summarizer.js';
+import { FakeTranscriber } from '../../src/services/transcriber.js';
+import type { SendTextInput } from '../../src/services/whatsapp-client.js';
+import { createInMemoryOutboundMessages } from '../helpers/in-memory-outbound.js';
+
+const now = new Date('2026-08-03T12:00:00.000Z');
+
+function makeContext(): AudioJobContext {
+  return {
+    job: {
+      id: 'job-1',
+      inboundMessageId: 'inbound-1',
+      status: 'processing',
+      attemptCount: 1,
+      maxAttempts: 3,
+      nextAttemptAt: now,
+      lockedAt: now,
+      lockedBy: 'worker-1',
+      startedAt: now,
+      completedAt: null,
+      downloadLatencyMs: null,
+      transcriptionLatencyMs: null,
+      summaryLatencyMs: null,
+      totalLatencyMs: null,
+      errorCode: null,
+      errorDetailSanitized: null,
+      createdAt: now,
+      updatedAt: now
+    },
+    inboundMessage: {
+      id: 'inbound-1',
+      whatsappMessageId: 'wamid.audio-123',
+      userId: 'user-1',
+      messageType: 'audio',
+      receivedAt: now,
+      whatsappTimestamp: now,
+      mediaId: 'media_audio_123',
+      mimeType: 'audio/ogg; codecs=opus',
+      isVoiceNote: true,
+      textBody: null,
+      status: 'processing',
+      errorCode: null
+    },
+    user: {
+      id: 'user-1',
+      whatsappUserId: '15551234567',
+      displayName: 'Laura',
+      createdAt: now,
+      lastSeenAt: now,
+      isBlocked: false
+    }
+  };
+}
+
+function makePendingLabel(): PendingSenderLabelRecord {
+  return {
+    id: 'label-1',
+    userId: 'user-1',
+    label: 'Alex',
+    normalizedLabel: 'alex',
+    createdAt: now,
+    expiresAt: new Date('2026-08-03T12:30:00.000Z'),
+    consumedAt: now
+  };
+}
+
+function makeSummary(input: InsertSummaryInput, inserted: boolean): SummaryRecord {
+  return {
+    id: 'summary-1',
+    userId: input.userId,
+    inboundMessageId: input.inboundMessageId,
+    referenceCode: input.referenceCode ?? null,
+    fromLabel: input.fromLabel,
+    fromLabelConfidence: input.fromLabelConfidence,
+    oneSentenceSummary: input.oneSentenceSummary,
+    shortSummary: input.shortSummary,
+    importantPoints: input.importantPoints,
+    questionsOrRequests: input.questionsOrRequests,
+    datesOrCommitments: input.datesOrCommitments,
+    replyNeeded: input.replyNeeded,
+    listeningRecommendation: input.listeningRecommendation,
+    createdAt: now,
+    expiresAt: input.expiresAt,
+    deletedAt: null
+  };
+}
+
+function makeTranscript(input: InsertTranscriptInput): TranscriptRecord {
+  return {
+    id: 'transcript-1',
+    userId: input.userId,
+    inboundMessageId: input.inboundMessageId,
+    summaryId: input.summaryId,
+    text: input.text,
+    characterCount: input.text.length,
+    createdAt: now,
+    expiresAt: input.expiresAt,
+    deletedAt: null
+  };
+}
+
+function makeDependencies() {
+  let pendingLabel: PendingSenderLabelRecord | null = makePendingLabel();
+  let storedSummary: SummaryRecord | null = null;
+  let storedTranscript: TranscriptRecord | null = null;
+  const sentMessages: SendTextInput[] = [];
+  const dependencies = {
+    config: {
+      SUMMARY_RETENTION_DAYS: 30,
+      TRANSCRIPT_RETENTION_DAYS: 30
+    },
+    jobStore: {
+      findJobContext: vi.fn(async () => makeContext()),
+      markCompleted: vi.fn(async () => ({}))
+    },
+    pendingSenderLabels: {
+      consumeLatestForUser: vi.fn(async () => {
+        const label = pendingLabel;
+        pendingLabel = null;
+        return label;
+      })
+    },
+    summaries: {
+      insertIfNew: vi.fn(async (input: InsertSummaryInput) => {
+        if (storedSummary) {
+          return {
+            record: storedSummary,
+            inserted: false
+          };
+        }
+
+        storedSummary = makeSummary(input, true);
+        return {
+          record: storedSummary,
+          inserted: true
+        };
+      })
+    },
+    transcripts: {
+      insertIfNew: vi.fn(async (input: InsertTranscriptInput) => {
+        if (storedTranscript) {
+          return {
+            record: storedTranscript,
+            inserted: false
+          };
+        }
+
+        storedTranscript = makeTranscript(input);
+        return {
+          record: storedTranscript,
+          inserted: true
+        };
+      })
+    },
+    outboundMessages: createInMemoryOutboundMessages(),
+    whatsapp: {
+      sendText: vi.fn(async (input: SendTextInput) => {
+        sentMessages.push(input);
+        return { whatsappMessageId: `wamid.out.${sentMessages.length}` };
+      })
+    },
+    transcriber: new FakeTranscriber(),
+    summarizer: new FakeSummarizer(),
+    now: () => now
+  };
+
+  return {
+    dependencies,
+    sentMessages
+  };
+}
+
+describe('createAudioMessageProcessor', () => {
+  it('turns a queued fake audio job into a stored summary, transcript, and reply', async () => {
+    const { dependencies, sentMessages } = makeDependencies();
+    const processor = createAudioMessageProcessor(dependencies);
+
+    await expect(processor.processAudioMessage('job-1')).resolves.toEqual({
+      processed: true,
+      summaryId: 'summary-1',
+      transcriptId: 'transcript-1',
+      replyCount: 1
+    });
+
+    expect(dependencies.pendingSenderLabels.consumeLatestForUser).toHaveBeenCalledWith(
+      'user-1',
+      now
+    );
+    expect(dependencies.summaries.insertIfNew).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        inboundMessageId: 'inbound-1',
+        fromLabel: 'Alex',
+        fromLabelConfidence: 'user_provided'
+      })
+    );
+    expect(dependencies.transcripts.insertIfNew).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        inboundMessageId: 'inbound-1',
+        summaryId: 'summary-1'
+      })
+    );
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]?.to).toBe('15551234567');
+    expect(sentMessages[0]?.body).toContain('Voice note summary\nFrom: Alex');
+    expect(dependencies.jobStore.markCompleted).toHaveBeenCalledWith({
+      jobId: 'job-1',
+      inboundMessageId: 'inbound-1',
+      completedAt: now
+    });
+  });
+
+  it('does not send a duplicate summary reply on a repeated processor run', async () => {
+    const { dependencies, sentMessages } = makeDependencies();
+    const processor = createAudioMessageProcessor(dependencies);
+
+    await processor.processAudioMessage('job-1');
+    await processor.processAudioMessage('job-1');
+
+    expect(sentMessages).toHaveLength(1);
+  });
+});

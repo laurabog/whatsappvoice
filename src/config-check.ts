@@ -17,8 +17,9 @@ if (!metaStatus.configured) {
   console.error(`Missing Meta-side WhatsApp values: ${metaStatus.missing.join(', ')}`);
 }
 
+const missingMetaKeys = new Set<string>(metaStatus.missing);
 const missingNonMetaKeys = webhookStatus.missing.filter(
-  (key) => !metaStatus.missing.includes(key as never)
+  (key) => !missingMetaKeys.has(key)
 );
 
 if (missingNonMetaKeys.length > 0) {

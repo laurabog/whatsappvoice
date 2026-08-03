@@ -105,6 +105,15 @@ export function createSummaryJobsRepository(db: DbClient) {
       return row ? mapSummaryJobRow(row) : null;
     },
 
+    async findById(id: string): Promise<SummaryJobRecord | null> {
+      const result = await db.query<SummaryJobRow>('select * from summary_jobs where id = $1', [
+        id
+      ]);
+
+      const row = result.rows[0];
+      return row ? mapSummaryJobRow(row) : null;
+    },
+
     async claimNextQueuedJob(workerId: string): Promise<SummaryJobRecord | null> {
       const result = await db.query<SummaryJobRow>(
         `
@@ -133,6 +142,77 @@ export function createSummaryJobsRepository(db: DbClient) {
 
       const row = result.rows[0];
       return row ? mapSummaryJobRow(row) : null;
+    },
+
+    async markCompleted(id: string, completedAt: Date): Promise<SummaryJobRecord> {
+      const result = await db.query<SummaryJobRow>(
+        `
+          update summary_jobs
+          set
+            status = 'completed',
+            completed_at = $2,
+            locked_at = null,
+            locked_by = null,
+            updated_at = $2
+          where id = $1
+          returning *
+        `,
+        [id, completedAt]
+      );
+
+      const row = result.rows[0];
+      if (!row) {
+        throw new Error(`Summary job ${id} was not found`);
+      }
+
+      return mapSummaryJobRow(row);
+    },
+
+    async markFailed(input: {
+      id: string;
+      failedAt: Date;
+      retryAt: Date | null;
+      errorCode: string;
+      errorDetailSanitized?: string | null;
+    }): Promise<SummaryJobRecord> {
+      const result = await db.query<SummaryJobRow>(
+        `
+          update summary_jobs
+          set
+            status = case
+              when attempt_count >= max_attempts or $3::timestamptz is null
+                then 'terminal_failed'
+              else 'retryable_failed'
+            end,
+            next_attempt_at = coalesce($3, next_attempt_at),
+            locked_at = null,
+            locked_by = null,
+            completed_at = case
+              when attempt_count >= max_attempts or $3::timestamptz is null
+                then $2
+              else completed_at
+            end,
+            error_code = $4,
+            error_detail_sanitized = $5,
+            updated_at = $2
+          where id = $1
+          returning *
+        `,
+        [
+          input.id,
+          input.failedAt,
+          input.retryAt,
+          input.errorCode,
+          input.errorDetailSanitized ?? null
+        ]
+      );
+
+      const row = result.rows[0];
+      if (!row) {
+        throw new Error(`Summary job ${input.id} was not found`);
+      }
+
+      return mapSummaryJobRow(row);
     }
   };
 }
