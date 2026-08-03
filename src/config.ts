@@ -9,6 +9,7 @@ const envSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().min(1).optional(),
   WHATSAPP_APP_SECRET: z.string().min(1).optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().min(1).optional(),
+  WHATSAPP_GRAPH_API_VERSION: z.string().min(1).default('v23.0'),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default('gpt-4o-mini-transcribe'),
   OPENAI_SUMMARY_MODEL: z.string().min(1).optional(),

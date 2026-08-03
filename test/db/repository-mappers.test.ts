@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { mapInboundMessageRow } from '../../src/db/repositories/inbound-messages.js';
+import { mapPendingSenderLabelRow } from '../../src/db/repositories/pending-sender-labels.js';
 import { mapSummaryJobRow } from '../../src/db/repositories/summary-jobs.js';
+import { mapTranscriptRow } from '../../src/db/repositories/transcripts.js';
 import { mapUserRow } from '../../src/db/repositories/users.js';
 
 describe('repository row mappers', () => {
@@ -91,6 +93,60 @@ describe('repository row mappers', () => {
       attemptCount: 0,
       maxAttempts: 3,
       nextAttemptAt: now
+    });
+  });
+
+  it('maps pending sender label rows to app records', () => {
+    const now = new Date('2026-08-03T12:00:00.000Z');
+    const expiresAt = new Date('2026-08-03T12:30:00.000Z');
+
+    expect(
+      mapPendingSenderLabelRow({
+        id: 'label-id',
+        user_id: 'user-id',
+        label: 'Alex',
+        normalized_label: 'alex',
+        created_at: now,
+        expires_at: expiresAt,
+        consumed_at: null
+      })
+    ).toEqual({
+      id: 'label-id',
+      userId: 'user-id',
+      label: 'Alex',
+      normalizedLabel: 'alex',
+      createdAt: now,
+      expiresAt,
+      consumedAt: null
+    });
+  });
+
+  it('maps transcript rows to app records', () => {
+    const now = new Date('2026-08-03T12:00:00.000Z');
+    const expiresAt = new Date('2026-09-02T12:00:00.000Z');
+
+    expect(
+      mapTranscriptRow({
+        id: 'transcript-id',
+        user_id: 'user-id',
+        inbound_message_id: 'message-id',
+        summary_id: 'summary-id',
+        text: 'Transcript body',
+        character_count: 15,
+        created_at: now,
+        expires_at: expiresAt,
+        deleted_at: null
+      })
+    ).toEqual({
+      id: 'transcript-id',
+      userId: 'user-id',
+      inboundMessageId: 'message-id',
+      summaryId: 'summary-id',
+      text: 'Transcript body',
+      characterCount: 15,
+      createdAt: now,
+      expiresAt,
+      deletedAt: null
     });
   });
 });

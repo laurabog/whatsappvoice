@@ -7,6 +7,7 @@ describe('loadConfig', () => {
 
     expect(config.NODE_ENV).toBe('development');
     expect(config.PORT).toBe(3000);
+    expect(config.WHATSAPP_GRAPH_API_VERSION).toBe('v23.0');
     expect(config.OPENAI_TRANSCRIPTION_MODEL).toBe('gpt-4o-mini-transcribe');
     expect(config.MAX_AUDIO_DURATION_SECONDS).toBe(600);
     expect(config.TRANSCRIPT_RETENTION_DAYS).toBe(30);
