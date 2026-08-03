@@ -146,6 +146,35 @@ describe('OpenAISummarizer', () => {
     expect(client.responses.parse).toHaveBeenCalledTimes(2);
   });
 
+  it('does not wrap OpenAI API errors as schema errors', async () => {
+    const apiError = Object.assign(new Error('insufficient quota'), {
+      status: 429,
+      code: 'insufficient_quota'
+    });
+    const client = {
+      responses: {
+        parse: vi.fn(async () => {
+          throw apiError;
+        })
+      }
+    } as unknown as OpenAI;
+    const summarizer = new OpenAISummarizer(
+      {
+        OPENAI_API_KEY: undefined,
+        OPENAI_SUMMARY_MODEL: 'gpt-4o-mini'
+      },
+      client
+    );
+
+    await expect(
+      summarizer.summarize({
+        transcript: 'A transcript.'
+      })
+    ).rejects.toBe(apiError);
+
+    expect(client.responses.parse).toHaveBeenCalledTimes(1);
+  });
+
   it('requires an API key when no client is injected', () => {
     expect(
       () =>

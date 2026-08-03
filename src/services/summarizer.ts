@@ -93,6 +93,15 @@ export function parseSummaryModelOutput(output: unknown): SummaryOutput {
   return summaryOutputFromModelOutput(summaryModelOutputSchema.parse(output));
 }
 
+function isOpenAIClientError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    typeof (error as { status?: unknown }).status === 'number'
+  );
+}
+
 export class FakeSummarizer implements Summarizer {
   async summarize(input: SummarizerInput): Promise<SummaryOutput> {
     return {
@@ -162,6 +171,10 @@ export class OpenAISummarizer implements Summarizer {
 
         return summaryOutputFromModelOutput(response.output_parsed);
       } catch (error) {
+        if (isOpenAIClientError(error)) {
+          throw error;
+        }
+
         lastError = error;
       }
     }
