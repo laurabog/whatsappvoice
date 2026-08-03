@@ -1,0 +1,9 @@
+{
+  "app": {
+    "name": "whatsapp-voice-summary",
+    "region": "eu-central-1",
+    "framework": "bun",
+    "entry": "src/api.ts",
+    "httpPort": 3000
+  }
+}
