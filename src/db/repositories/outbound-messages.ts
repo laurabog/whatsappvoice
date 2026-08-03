@@ -105,7 +105,14 @@ export function createOutboundMessagesRepository(db: DbClient) {
             body_sha256
           )
           values ($1, $2, $3, $4, $5, 'pending', $6)
-          on conflict (inbound_message_id, reply_kind, chunk_index) do nothing
+          on conflict (inbound_message_id, reply_kind, chunk_index) do update
+            set
+              status = 'pending',
+              whatsapp_message_id = null,
+              sent_at = null,
+              error_code = null,
+              body_sha256 = excluded.body_sha256
+            where outbound_messages.status = 'failed'
           returning *
         `,
         [

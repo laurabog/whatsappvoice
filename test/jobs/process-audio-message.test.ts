@@ -290,6 +290,7 @@ describe('createAudioMessageProcessor', () => {
     await expect(processor.processAudioMessage('job-1')).rejects.toThrow('summary failed');
 
     expect(cleanup).toHaveBeenCalledOnce();
+    expect(dependencies.pendingSenderLabels.consumeLatestForUser).not.toHaveBeenCalled();
     expect(dependencies.jobStore.markCompleted).not.toHaveBeenCalled();
   });
 

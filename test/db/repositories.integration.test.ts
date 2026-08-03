@@ -2,6 +2,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyMigrations } from '../../src/db/migrations.js';
 import { createInboundMessagesRepository } from '../../src/db/repositories/inbound-messages.js';
+import { createOutboundMessagesRepository } from '../../src/db/repositories/outbound-messages.js';
 import { createSummaryJobsRepository } from '../../src/db/repositories/summary-jobs.js';
 import { createUsersRepository } from '../../src/db/repositories/users.js';
 
@@ -26,6 +27,7 @@ describeWithDb('database repositories', () => {
     const users = createUsersRepository(pool);
     const inboundMessages = createInboundMessagesRepository(pool);
     const summaryJobs = createSummaryJobsRepository(pool);
+    const outboundMessages = createOutboundMessagesRepository(pool);
 
     const uniqueSuffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const user = await users.upsertFromWhatsApp({
@@ -62,5 +64,29 @@ describeWithDb('database repositories', () => {
 
     expect(job.status).toBe('queued');
     expect(fetchedJob?.id).toBe(job.id);
+
+    const outbound = await outboundMessages.reserve({
+      inboundMessageId: inbound.record.id,
+      userId: user.id,
+      replyKind: 'summary',
+      bodySha256: 'first-hash'
+    });
+    expect(outbound.reserved).toBe(true);
+
+    await outboundMessages.markFailed({
+      id: outbound.record.id,
+      errorCode: 'send_failed'
+    });
+
+    const retry = await outboundMessages.reserve({
+      inboundMessageId: inbound.record.id,
+      userId: user.id,
+      replyKind: 'summary',
+      bodySha256: 'retry-hash'
+    });
+    expect(retry.reserved).toBe(true);
+    expect(retry.record.id).toBe(outbound.record.id);
+    expect(retry.record.status).toBe('pending');
+    expect(retry.record.bodySha256).toBe('retry-hash');
   });
 });

@@ -25,6 +25,19 @@ export function createInMemoryOutboundMessages() {
       const key = outboundKey(input);
       const existing = records.get(key);
       if (existing) {
+        if (existing.status === 'failed') {
+          existing.status = 'pending';
+          existing.whatsappMessageId = null;
+          existing.sentAt = null;
+          existing.errorCode = null;
+          existing.bodySha256 = input.bodySha256;
+
+          return {
+            record: existing,
+            reserved: true
+          };
+        }
+
         return {
           record: existing,
           reserved: false

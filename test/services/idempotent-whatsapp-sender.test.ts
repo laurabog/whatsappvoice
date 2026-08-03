@@ -80,4 +80,46 @@ describe('sendWhatsAppTextOnce', () => {
     expect([...outboundMessages.records.values()][0]?.status).toBe('failed');
     expect([...outboundMessages.records.values()][0]?.errorCode).toBe('Error');
   });
+
+  it('retries a previously failed outbound message', async () => {
+    const outboundMessages = createInMemoryOutboundMessages();
+    let shouldFail = true;
+    const sentMessages: SendTextInput[] = [];
+    const whatsapp = {
+      sendText: vi.fn(async (input: SendTextInput) => {
+        if (shouldFail) {
+          shouldFail = false;
+          throw new Error('network down');
+        }
+
+        sentMessages.push(input);
+        return { whatsappMessageId: 'wamid.retry-ok' };
+      })
+    };
+    const input = {
+      outboundMessages,
+      whatsapp,
+      inboundMessageId: 'inbound-1',
+      userId: 'user-1',
+      replyKind: 'summary' as const,
+      to: '15551234567',
+      body: 'Summary',
+      contextMessageId: 'wamid.inbound'
+    };
+
+    await expect(sendWhatsAppTextOnce(input)).rejects.toThrow('network down');
+    await expect(sendWhatsAppTextOnce(input)).resolves.toEqual({
+      sent: true,
+      whatsappMessageId: 'wamid.retry-ok'
+    });
+
+    expect(sentMessages).toEqual([
+      {
+        to: '15551234567',
+        body: 'Summary',
+        contextMessageId: 'wamid.inbound'
+      }
+    ]);
+    expect([...outboundMessages.records.values()][0]?.status).toBe('sent');
+  });
 });

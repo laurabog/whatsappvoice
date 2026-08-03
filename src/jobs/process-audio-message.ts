@@ -119,12 +119,6 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
         throw new Error(`Summary job ${jobId} does not reference an audio message`);
       }
 
-      const processingStartedAt = now();
-      const pendingLabel = await dependencies.pendingSenderLabels.consumeLatestForUser(
-        context.user.id,
-        processingStartedAt
-      );
-
       let preparedAudio: PreparedAudio | null = null;
 
       try {
@@ -144,6 +138,11 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
         const summary = await dependencies.summarizer.summarize({
           transcript: transcription.text
         });
+        const processingStartedAt = now();
+        const pendingLabel = await dependencies.pendingSenderLabels.consumeLatestForUser(
+          context.user.id,
+          processingStartedAt
+        );
         const senderLabel = resolveSenderLabel({
           pendingLabel,
           summary
