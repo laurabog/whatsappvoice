@@ -66,6 +66,10 @@ npm run config:check
 
 The command only reports which required names are missing. It does not print secret values.
 
+The API can still run health checks and answer the webhook verification challenge
+with only `WHATSAPP_VERIFY_TOKEN` configured. Real signed webhook POST handling,
+WhatsApp replies, and WhatsApp media download need the Meta-side values above.
+
 ## Local Checklist
 
 1. Copy `.env.example` to `.env`.

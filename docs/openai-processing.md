@@ -14,11 +14,13 @@ OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 OPENAI_SUMMARY_MODEL=gpt-4o-mini
 MAX_AUDIO_BYTES=16777216
 MAX_AUDIO_DURATION_SECONDS=600
+AUDIO_DURATION_PROBE=disabled
 TEMP_AUDIO_DIR=/tmp/whatsapp-summary-audio
 ```
 
-The worker uses fake processing by default. When `OPENAI_API_KEY` is configured, it
-switches to the real path:
+The worker uses fake processing by default. It switches to the real path only when
+`OPENAI_API_KEY`, `WHATSAPP_ACCESS_TOKEN`, and `WHATSAPP_PHONE_NUMBER_ID` are all
+configured:
 
 ```text
 WhatsApp media ID -> Meta media URL -> temp audio file -> OpenAI transcription -> OpenAI summary -> WhatsApp reply
@@ -27,6 +29,10 @@ WhatsApp media ID -> Meta media URL -> temp audio file -> OpenAI transcription -
 The current Prisma Compute deployment runs the API entrypoint. That is enough for
 health checks and webhook verification, but queued audio jobs need a worker process
 before production messages can be fully processed.
+
+`AUDIO_DURATION_PROBE=ffprobe` enables duration validation when the runtime has
+`ffprobe` available. The default is `disabled`, so deployment can start with
+placeholders before we know the exact runtime image capabilities.
 
 ## Local Integration Test
 
@@ -48,3 +54,7 @@ The normal `npm test` suite mocks OpenAI and does not make network calls.
   processing succeeds or fails.
 - The app accepts WhatsApp-supported audio MIME types and requires `audio/ogg` to
   include the Opus codec marker.
+- The worker records download, transcription, summary, and total latency metrics
+  on completed jobs.
+- Retention cleanup runs from the worker and deletes expired user data plus old
+  completed or terminal job metadata.

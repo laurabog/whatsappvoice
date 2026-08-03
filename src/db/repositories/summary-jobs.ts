@@ -114,14 +114,24 @@ export function createSummaryJobsRepository(db: DbClient) {
       return row ? mapSummaryJobRow(row) : null;
     },
 
-    async claimNextQueuedJob(workerId: string): Promise<SummaryJobRecord | null> {
+    async claimNextQueuedJob(
+      workerId: string,
+      staleProcessingBefore?: Date
+    ): Promise<SummaryJobRecord | null> {
       const result = await db.query<SummaryJobRow>(
         `
           with next_job as (
             select id
             from summary_jobs
-            where status in ('queued', 'retryable_failed')
-              and next_attempt_at <= now()
+            where (
+                status in ('queued', 'retryable_failed')
+                and next_attempt_at <= now()
+              )
+              or (
+                $2::timestamptz is not null
+                and status = 'processing'
+                and locked_at <= $2
+              )
             order by created_at asc
             for update skip locked
             limit 1
@@ -137,14 +147,21 @@ export function createSummaryJobsRepository(db: DbClient) {
           where id in (select id from next_job)
           returning *
         `,
-        [workerId]
+        [workerId, staleProcessingBefore ?? null]
       );
 
       const row = result.rows[0];
       return row ? mapSummaryJobRow(row) : null;
     },
 
-    async markCompleted(id: string, completedAt: Date): Promise<SummaryJobRecord> {
+    async markCompleted(input: {
+      id: string;
+      completedAt: Date;
+      downloadLatencyMs?: number | null;
+      transcriptionLatencyMs?: number | null;
+      summaryLatencyMs?: number | null;
+      totalLatencyMs?: number | null;
+    }): Promise<SummaryJobRecord> {
       const result = await db.query<SummaryJobRow>(
         `
           update summary_jobs
@@ -153,16 +170,27 @@ export function createSummaryJobsRepository(db: DbClient) {
             completed_at = $2,
             locked_at = null,
             locked_by = null,
+            download_latency_ms = $3,
+            transcription_latency_ms = $4,
+            summary_latency_ms = $5,
+            total_latency_ms = $6,
             updated_at = $2
           where id = $1
           returning *
         `,
-        [id, completedAt]
+        [
+          input.id,
+          input.completedAt,
+          input.downloadLatencyMs ?? null,
+          input.transcriptionLatencyMs ?? null,
+          input.summaryLatencyMs ?? null,
+          input.totalLatencyMs ?? null
+        ]
       );
 
       const row = result.rows[0];
       if (!row) {
-        throw new Error(`Summary job ${id} was not found`);
+        throw new Error(`Summary job ${input.id} was not found`);
       }
 
       return mapSummaryJobRow(row);
@@ -213,6 +241,20 @@ export function createSummaryJobsRepository(db: DbClient) {
       }
 
       return mapSummaryJobRow(row);
+    },
+
+    async deleteFinishedBefore(cutoff: Date): Promise<number> {
+      const result = await db.query(
+        `
+          delete from summary_jobs
+          where status in ('completed', 'terminal_failed')
+            and completed_at is not null
+            and completed_at < $1
+        `,
+        [cutoff]
+      );
+
+      return result.rowCount ?? 0;
     }
   };
 }

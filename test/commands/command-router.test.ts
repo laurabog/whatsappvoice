@@ -5,9 +5,11 @@ import {
   helpMessage,
   unsupportedMessage
 } from '../../src/commands/messages.js';
+import type { InboundMessageRecord } from '../../src/db/repositories/inbound-messages.js';
 import type { UserRecord } from '../../src/db/repositories/users.js';
 import type { ParsedWhatsAppMessage } from '../../src/routes/whatsapp-payload.js';
 import type { SendTextInput } from '../../src/services/whatsapp-client.js';
+import { createInMemoryOutboundMessages } from '../helpers/in-memory-outbound.js';
 
 function makeUser(): UserRecord {
   const now = new Date('2026-08-03T12:00:00.000Z');
@@ -53,6 +55,8 @@ function makeAudioMessage(): ParsedWhatsAppMessage {
 function makeDependencies(overrides: Partial<CommandRouterDependencies> = {}) {
   const now = new Date('2026-08-03T12:00:00.000Z');
   const sentMessages: SendTextInput[] = [];
+  const inboundByWhatsAppId = new Map<string, InboundMessageRecord>();
+  const outboundMessages = createInMemoryOutboundMessages();
 
   const dependencies = {
     config: {
@@ -69,6 +73,51 @@ function makeDependencies(overrides: Partial<CommandRouterDependencies> = {}) {
     users: {
       upsertFromWhatsApp: vi.fn(async () => makeUser())
     },
+    inboundMessages: {
+      insertIfNew: vi.fn(async (input) => {
+        const existing = inboundByWhatsAppId.get(input.whatsappMessageId);
+        if (existing) {
+          return {
+            record: existing,
+            inserted: false
+          };
+        }
+
+        const inboundMessage: InboundMessageRecord = {
+          id: `inbound-${inboundByWhatsAppId.size + 1}`,
+          whatsappMessageId: input.whatsappMessageId,
+          userId: input.userId,
+          messageType: input.messageType,
+          receivedAt: now,
+          whatsappTimestamp: input.whatsappTimestamp ?? null,
+          mediaId: null,
+          mimeType: null,
+          isVoiceNote: null,
+          textBody: input.textBody ?? null,
+          status: input.status ?? 'received',
+          errorCode: null
+        };
+        inboundByWhatsAppId.set(input.whatsappMessageId, inboundMessage);
+
+        return {
+          record: inboundMessage,
+          inserted: true
+        };
+      }),
+      updateStatus: vi.fn(async (id, status, errorCode) => {
+        const inboundMessage = [...inboundByWhatsAppId.values()].find(
+          (candidate) => candidate.id === id
+        );
+        if (!inboundMessage) {
+          throw new Error(`Inbound message ${id} not found`);
+        }
+
+        inboundMessage.status = status;
+        inboundMessage.errorCode = errorCode ?? null;
+        return inboundMessage;
+      })
+    },
+    outboundMessages,
     pendingSenderLabels: {
       createPendingLabel: vi.fn(async () => ({})),
       deleteForUser: vi.fn(async () => 1)
@@ -88,6 +137,8 @@ function makeDependencies(overrides: Partial<CommandRouterDependencies> = {}) {
   return {
     dependencies,
     sentMessages,
+    inboundByWhatsAppId,
+    outboundMessages,
     now
   };
 }
@@ -116,6 +167,18 @@ describe('createCommandRouter', () => {
       whatsappUserId: '15551234567',
       displayName: 'Laura'
     });
+    expect(dependencies.inboundMessages.insertIfNew).toHaveBeenCalledWith({
+      whatsappMessageId: 'wamid.HELP',
+      userId: 'user-1',
+      messageType: 'text',
+      whatsappTimestamp: new Date('2026-08-03T12:00:00.000Z'),
+      textBody: null,
+      status: 'received'
+    });
+    expect(dependencies.inboundMessages.updateStatus).toHaveBeenCalledWith(
+      'inbound-1',
+      'completed'
+    );
     expect(sentMessages).toEqual([
       {
         to: '15551234567',
@@ -192,6 +255,46 @@ describe('createCommandRouter', () => {
       expiresAt: new Date(now.getTime() + 30 * 60 * 1000)
     });
     expect(sentMessages[0]?.body).toBe('Got it. I will label the next voice note as from Alex.');
+  });
+
+  it('does not duplicate sender-label side effects or replies for duplicate text webhooks', async () => {
+    const { dependencies, sentMessages } = makeDependencies();
+    const router = createCommandRouter(dependencies);
+    const message = makeTextMessage('From Alex');
+
+    await router.handleMessage(message);
+    await router.handleMessage(message);
+
+    expect(dependencies.pendingSenderLabels.createPendingLabel).toHaveBeenCalledOnce();
+    expect(dependencies.inboundMessages.updateStatus).toHaveBeenCalledOnce();
+    expect(sentMessages).toHaveLength(1);
+  });
+
+  it('reruns sender-label work when a previous duplicate command attempt did not complete', async () => {
+    let shouldFail = true;
+    const { dependencies, sentMessages } = makeDependencies({
+      pendingSenderLabels: {
+        createPendingLabel: vi.fn(async () => {
+          if (shouldFail) {
+            shouldFail = false;
+            throw new Error('database unavailable');
+          }
+        }),
+        deleteForUser: vi.fn(async () => 1)
+      }
+    });
+    const router = createCommandRouter(dependencies);
+    const message = makeTextMessage('From Alex');
+
+    await expect(router.handleMessage(message)).rejects.toThrow('database unavailable');
+    await expect(router.handleMessage(message)).resolves.toEqual({
+      handled: true,
+      command: 'sender_label'
+    });
+
+    expect(dependencies.pendingSenderLabels.createPendingLabel).toHaveBeenCalledTimes(2);
+    expect(dependencies.inboundMessages.updateStatus).toHaveBeenCalledOnce();
+    expect(sentMessages).toHaveLength(1);
   });
 
   it('replies helpfully to unsupported text', async () => {

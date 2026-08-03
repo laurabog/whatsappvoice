@@ -8,6 +8,8 @@ export type OutboundReplyKind =
   | 'failure'
   | 'help'
   | 'status'
+  | 'sender_label'
+  | 'unsupported_text'
   | 'delete_confirmation';
 
 export type OutboundMessageStatus = 'pending' | 'sent' | 'failed';

@@ -81,6 +81,14 @@ export function createPendingSenderLabelsRepository(db: DbClient) {
       return result.rowCount ?? 0;
     },
 
+    async deleteExpired(now: Date): Promise<number> {
+      const result = await db.query(
+        'delete from pending_sender_labels where expires_at <= $1',
+        [now]
+      );
+      return result.rowCount ?? 0;
+    },
+
     async consumeLatestForUser(userId: string, now: Date): Promise<PendingSenderLabelRecord | null> {
       const result = await db.query<PendingSenderLabelRow>(
         `

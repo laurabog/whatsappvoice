@@ -1,4 +1,4 @@
-import type { DbClient } from '../db/client.js';
+import type { DbClient, DbPool } from '../db/client.js';
 import type { InboundMessageRecord } from '../db/repositories/inbound-messages.js';
 import { createInboundMessagesRepository } from '../db/repositories/inbound-messages.js';
 import type { SummaryJobRecord } from '../db/repositories/summary-jobs.js';
@@ -97,8 +97,26 @@ function mapAudioJobContextRow(row: AudioJobContextRow): AudioJobContext {
   };
 }
 
-export function createJobStore(db: DbClient) {
-  const inboundMessages = createInboundMessagesRepository(db);
+async function withTransaction<T>(
+  db: DbPool,
+  run: (client: DbClient) => Promise<T>
+): Promise<T> {
+  const client = await db.connect();
+
+  try {
+    await client.query('begin');
+    const result = await run(client);
+    await client.query('commit');
+    return result;
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export function createJobStore(db: DbPool) {
   const summaryJobs = createSummaryJobsRepository(db);
 
   return {
@@ -161,9 +179,25 @@ export function createJobStore(db: DbClient) {
       jobId: string;
       inboundMessageId: string;
       completedAt: Date;
+      downloadLatencyMs?: number | null;
+      transcriptionLatencyMs?: number | null;
+      summaryLatencyMs?: number | null;
+      totalLatencyMs?: number | null;
     }): Promise<SummaryJobRecord> {
-      await inboundMessages.updateStatus(input.inboundMessageId, 'completed');
-      return summaryJobs.markCompleted(input.jobId, input.completedAt);
+      return withTransaction(db, async (client) => {
+        const transactionalInboundMessages = createInboundMessagesRepository(client);
+        const transactionalSummaryJobs = createSummaryJobsRepository(client);
+
+        await transactionalInboundMessages.updateStatus(input.inboundMessageId, 'completed');
+        return transactionalSummaryJobs.markCompleted({
+          id: input.jobId,
+          completedAt: input.completedAt,
+          downloadLatencyMs: input.downloadLatencyMs,
+          transcriptionLatencyMs: input.transcriptionLatencyMs,
+          summaryLatencyMs: input.summaryLatencyMs,
+          totalLatencyMs: input.totalLatencyMs
+        });
+      });
     },
 
     async markFailed(input: {
@@ -174,19 +208,27 @@ export function createJobStore(db: DbClient) {
       errorCode: string;
       errorDetailSanitized?: string | null;
     }): Promise<SummaryJobRecord> {
-      const job = await summaryJobs.markFailed({
-        id: input.jobId,
-        failedAt: input.failedAt,
-        retryAt: input.retryAt,
-        errorCode: input.errorCode,
-        errorDetailSanitized: input.errorDetailSanitized
+      return withTransaction(db, async (client) => {
+        const transactionalInboundMessages = createInboundMessagesRepository(client);
+        const transactionalSummaryJobs = createSummaryJobsRepository(client);
+        const job = await transactionalSummaryJobs.markFailed({
+          id: input.jobId,
+          failedAt: input.failedAt,
+          retryAt: input.retryAt,
+          errorCode: input.errorCode,
+          errorDetailSanitized: input.errorDetailSanitized
+        });
+
+        if (job.status === 'terminal_failed') {
+          await transactionalInboundMessages.updateStatus(
+            input.inboundMessageId,
+            'failed',
+            input.errorCode
+          );
+        }
+
+        return job;
       });
-
-      if (job.status === 'terminal_failed') {
-        await inboundMessages.updateStatus(input.inboundMessageId, 'failed', input.errorCode);
-      }
-
-      return job;
     }
   };
 }

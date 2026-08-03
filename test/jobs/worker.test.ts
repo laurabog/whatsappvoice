@@ -41,12 +41,16 @@ describe('createJobWorker', () => {
       workerId: 'worker-1',
       processJob,
       pollIntervalMs: 5000,
+      processingJobTimeoutMs: 15 * 60 * 1000,
       now: () => now
     });
 
     await expect(worker.runOnce()).resolves.toBe(true);
 
-    expect(jobStore.claimNextQueuedJob).toHaveBeenCalledWith('worker-1');
+    expect(jobStore.claimNextQueuedJob).toHaveBeenCalledWith(
+      'worker-1',
+      new Date('2026-08-03T11:45:00.000Z')
+    );
     expect(processJob).toHaveBeenCalledWith('job-1');
     expect(jobStore.markFailed).not.toHaveBeenCalled();
   });
@@ -68,6 +72,7 @@ describe('createJobWorker', () => {
         throw new Error('fake failure');
       }),
       pollIntervalMs: 5000,
+      processingJobTimeoutMs: 15 * 60 * 1000,
       now: () => now
     });
 
@@ -93,7 +98,8 @@ describe('createJobWorker', () => {
       jobStore,
       workerId: 'worker-1',
       processJob: vi.fn(),
-      pollIntervalMs: 5000
+      pollIntervalMs: 5000,
+      processingJobTimeoutMs: 15 * 60 * 1000
     });
 
     await expect(worker.runOnce()).resolves.toBe(false);

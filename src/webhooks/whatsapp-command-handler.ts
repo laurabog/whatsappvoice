@@ -35,6 +35,8 @@ export function createWhatsAppCommandHandler({
     config,
     whatsapp,
     users,
+    inboundMessages,
+    outboundMessages,
     pendingSenderLabels,
     summaries,
     transcripts

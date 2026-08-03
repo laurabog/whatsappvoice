@@ -197,6 +197,20 @@ export function createSummariesRepository(db: DbClient) {
       );
 
       return result.rowCount ?? 0;
+    },
+
+    async softDeleteExpired(now: Date): Promise<number> {
+      const result = await db.query(
+        `
+          update summaries
+          set deleted_at = $1
+          where expires_at <= $1
+            and deleted_at is null
+        `,
+        [now]
+      );
+
+      return result.rowCount ?? 0;
     }
   };
 }

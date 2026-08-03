@@ -33,6 +33,10 @@ export type ProcessAudioMessageDependencies = {
       jobId: string;
       inboundMessageId: string;
       completedAt: Date;
+      downloadLatencyMs?: number | null;
+      transcriptionLatencyMs?: number | null;
+      summaryLatencyMs?: number | null;
+      totalLatencyMs?: number | null;
     }): Promise<unknown>;
   };
   pendingSenderLabels: {
@@ -59,6 +63,10 @@ export type ProcessAudioMessageDependencies = {
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+function elapsedMs(startedAtMs: number): number {
+  return Math.max(0, Date.now() - startedAtMs);
 }
 
 function isSummaryPoint(value: unknown): value is SummaryPoint {
@@ -119,25 +127,36 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
         throw new Error(`Summary job ${jobId} does not reference an audio message`);
       }
 
+      const totalStartedAtMs = Date.now();
       let preparedAudio: PreparedAudio | null = null;
+      let downloadLatencyMs: number | null = null;
+      let transcriptionLatencyMs = 0;
+      let summaryLatencyMs = 0;
 
       try {
+        const downloadStartedAtMs = Date.now();
         preparedAudio = dependencies.audioSource
           ? await dependencies.audioSource.prepareAudio({
               mediaId: context.inboundMessage.mediaId,
               mimeType: context.inboundMessage.mimeType
             })
           : null;
+        downloadLatencyMs = dependencies.audioSource ? elapsedMs(downloadStartedAtMs) : null;
 
+        const transcriptionStartedAtMs = Date.now();
         const transcription = await dependencies.transcriber.transcribe({
           mediaId: context.inboundMessage.mediaId,
           audioPath: preparedAudio?.audioPath,
           mimeType: preparedAudio?.mimeType ?? context.inboundMessage.mimeType,
           language: 'en'
         });
+        transcriptionLatencyMs = elapsedMs(transcriptionStartedAtMs);
+
+        const summaryStartedAtMs = Date.now();
         const summary = await dependencies.summarizer.summarize({
           transcript: transcription.text
         });
+        summaryLatencyMs = elapsedMs(summaryStartedAtMs);
         const processingStartedAt = now();
         const pendingLabel = await dependencies.pendingSenderLabels.consumeLatestForUser(
           context.user.id,
@@ -202,7 +221,11 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
         await dependencies.jobStore.markCompleted({
           jobId: context.job.id,
           inboundMessageId: context.inboundMessage.id,
-          completedAt: now()
+          completedAt: now(),
+          downloadLatencyMs,
+          transcriptionLatencyMs,
+          summaryLatencyMs,
+          totalLatencyMs: elapsedMs(totalStartedAtMs)
         });
 
         return {

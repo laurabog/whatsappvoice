@@ -1,7 +1,10 @@
 import type { SummaryJobRecord } from '../db/repositories/summary-jobs.js';
 
 export type JobStoreForWorker = {
-  claimNextQueuedJob(workerId: string): Promise<SummaryJobRecord | null>;
+  claimNextQueuedJob(
+    workerId: string,
+    staleProcessingBefore?: Date
+  ): Promise<SummaryJobRecord | null>;
   findJobContext(jobId: string): Promise<{
     inboundMessage: {
       id: string;
@@ -22,6 +25,7 @@ export type JobWorkerDependencies = {
   workerId: string;
   processJob(jobId: string): Promise<unknown>;
   pollIntervalMs: number;
+  processingJobTimeoutMs: number;
   now?: () => Date;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
@@ -64,7 +68,13 @@ export function createJobWorker(dependencies: JobWorkerDependencies): JobWorker 
 
     running = true;
     try {
-      const job = await dependencies.jobStore.claimNextQueuedJob(dependencies.workerId);
+      const staleProcessingBefore = new Date(
+        now().getTime() - dependencies.processingJobTimeoutMs
+      );
+      const job = await dependencies.jobStore.claimNextQueuedJob(
+        dependencies.workerId,
+        staleProcessingBefore
+      );
       if (!job) {
         return false;
       }

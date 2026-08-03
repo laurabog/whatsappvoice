@@ -217,11 +217,17 @@ describe('createAudioMessageProcessor', () => {
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0]?.to).toBe('15551234567');
     expect(sentMessages[0]?.body).toContain('Voice note summary\nFrom: Alex');
-    expect(dependencies.jobStore.markCompleted).toHaveBeenCalledWith({
-      jobId: 'job-1',
-      inboundMessageId: 'inbound-1',
-      completedAt: now
-    });
+    expect(dependencies.jobStore.markCompleted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'job-1',
+        inboundMessageId: 'inbound-1',
+        completedAt: now,
+        downloadLatencyMs: null,
+        transcriptionLatencyMs: expect.any(Number),
+        summaryLatencyMs: expect.any(Number),
+        totalLatencyMs: expect.any(Number)
+      })
+    );
   });
 
   it('passes prepared audio files into transcription and cleans them up after success', async () => {

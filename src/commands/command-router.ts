@@ -1,6 +1,12 @@
 import type { AppConfig } from '../config.js';
+import type { InboundMessageRecord } from '../db/repositories/inbound-messages.js';
+import type { OutboundReplyKind } from '../db/repositories/outbound-messages.js';
 import type { UserRecord } from '../db/repositories/users.js';
 import type { ParsedWhatsAppMessage } from '../routes/whatsapp-payload.js';
+import {
+  sendWhatsAppTextOnce,
+  type OutboundMessagesForSending
+} from '../services/idempotent-whatsapp-sender.js';
 import type { WhatsAppTextSender } from '../services/whatsapp-client.js';
 import {
   deleteConfirmationMessage,
@@ -26,7 +32,10 @@ export type CommandHandlingResult =
     };
 
 export type CommandRouterDependencies = {
-  config: Pick<AppConfig, 'MAX_DAILY_MESSAGES_PER_USER' | 'MAX_TRANSCRIPT_REPLY_CHARS' | 'PENDING_LABEL_TTL_MINUTES'>;
+  config: Pick<
+    AppConfig,
+    'MAX_DAILY_MESSAGES_PER_USER' | 'MAX_TRANSCRIPT_REPLY_CHARS' | 'PENDING_LABEL_TTL_MINUTES'
+  >;
   whatsapp: WhatsAppTextSender;
   users: {
     upsertFromWhatsApp(input: {
@@ -34,6 +43,22 @@ export type CommandRouterDependencies = {
       displayName?: string | null;
     }): Promise<UserRecord>;
   };
+  inboundMessages: {
+    insertIfNew(input: {
+      whatsappMessageId: string;
+      userId: string;
+      messageType: string;
+      whatsappTimestamp?: Date | null;
+      textBody?: string | null;
+      status?: 'received' | 'ignored' | 'queued' | 'processing' | 'completed' | 'failed';
+    }): Promise<{ record: InboundMessageRecord; inserted: boolean }>;
+    updateStatus(
+      id: string,
+      status: 'received' | 'ignored' | 'queued' | 'processing' | 'completed' | 'failed',
+      errorCode?: string | null
+    ): Promise<InboundMessageRecord>;
+  };
+  outboundMessages: OutboundMessagesForSending;
   pendingSenderLabels: {
     createPendingLabel(input: {
       userId: string;
@@ -68,13 +93,26 @@ function hoursAgo(now: Date, hours: number): Date {
 
 async function sendReply(
   message: ParsedWhatsAppMessage,
+  inboundMessage: InboundMessageRecord,
+  user: UserRecord,
+  outboundMessages: OutboundMessagesForSending,
   whatsapp: WhatsAppTextSender,
-  body: string
+  replyKind: OutboundReplyKind,
+  body: string,
+  chunkIndex = 0,
+  now?: () => Date
 ) {
-  await whatsapp.sendText({
-    to: message.from,
+  await sendWhatsAppTextOnce({
+    outboundMessages,
+    whatsapp,
+    inboundMessageId: inboundMessage.id,
+    userId: user.id,
+    replyKind,
+    chunkIndex,
+    to: user.whatsappUserId,
     body,
-    contextMessageId: message.whatsappMessageId
+    contextMessageId: message.whatsappMessageId,
+    now
   });
 }
 
@@ -94,27 +132,76 @@ export function createCommandRouter(dependencies: CommandRouterDependencies) {
 
       const text = normalizeCommandText(message.textBody);
       const keyword = commandKeyword(text);
+      const inboundResult = await dependencies.inboundMessages.insertIfNew({
+        whatsappMessageId: message.whatsappMessageId,
+        userId: user.id,
+        messageType: message.messageType,
+        whatsappTimestamp: message.timestamp,
+        textBody: null,
+        status: 'received'
+      });
+      const inboundMessage = inboundResult.record;
+      const shouldRunCommandWork =
+        inboundResult.inserted || inboundMessage.status !== 'completed';
 
       if (keyword === 'help') {
-        await sendReply(message, dependencies.whatsapp, helpMessage);
+        if (shouldRunCommandWork) {
+          await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
+        }
+
+        await sendReply(
+          message,
+          inboundMessage,
+          user,
+          dependencies.outboundMessages,
+          dependencies.whatsapp,
+          'help',
+          helpMessage,
+          0,
+          now
+        );
         return { handled: true, command: 'help' };
       }
 
       if (keyword === 'delete') {
-        const deletionTime = now();
-        await dependencies.transcripts.softDeleteForUser(user.id, deletionTime);
-        await dependencies.summaries.softDeleteForUser(user.id, deletionTime);
-        await dependencies.pendingSenderLabels.deleteForUser(user.id);
-        await sendReply(message, dependencies.whatsapp, deleteConfirmationMessage);
+        if (shouldRunCommandWork) {
+          const deletionTime = now();
+          await dependencies.transcripts.softDeleteForUser(user.id, deletionTime);
+          await dependencies.summaries.softDeleteForUser(user.id, deletionTime);
+          await dependencies.pendingSenderLabels.deleteForUser(user.id);
+          await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
+        }
+
+        await sendReply(
+          message,
+          inboundMessage,
+          user,
+          dependencies.outboundMessages,
+          dependencies.whatsapp,
+          'delete_confirmation',
+          deleteConfirmationMessage,
+          0,
+          now
+        );
         return { handled: true, command: 'delete' };
       }
 
       if (keyword === 'status') {
         const count = await dependencies.summaries.countForUserSince(user.id, hoursAgo(now(), 24));
+        if (shouldRunCommandWork) {
+          await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
+        }
+
         await sendReply(
           message,
+          inboundMessage,
+          user,
+          dependencies.outboundMessages,
           dependencies.whatsapp,
-          `You have summarized ${count} voice notes today.\nDaily friend-beta limit: ${dependencies.config.MAX_DAILY_MESSAGES_PER_USER}.`
+          'status',
+          `You have summarized ${count} voice notes today.\nDaily friend-beta limit: ${dependencies.config.MAX_DAILY_MESSAGES_PER_USER}.`,
+          0,
+          now
         );
         return { handled: true, command: 'status' };
       }
@@ -125,9 +212,22 @@ export function createCommandRouter(dependencies: CommandRouterDependencies) {
           transcript,
           dependencies.config.MAX_TRANSCRIPT_REPLY_CHARS
         );
+        if (shouldRunCommandWork) {
+          await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
+        }
 
-        for (const reply of replies) {
-          await sendReply(message, dependencies.whatsapp, reply);
+        for (const [index, reply] of replies.entries()) {
+          await sendReply(
+            message,
+            inboundMessage,
+            user,
+            dependencies.outboundMessages,
+            dependencies.whatsapp,
+            'transcript',
+            reply,
+            index,
+            now
+          );
         }
 
         return { handled: true, command: 'transcript' };
@@ -135,26 +235,49 @@ export function createCommandRouter(dependencies: CommandRouterDependencies) {
 
       const senderLabel = parseSenderLabelCommand(text);
       if (senderLabel.ok) {
-        const expiresAt = new Date(
-          now().getTime() + dependencies.config.PENDING_LABEL_TTL_MINUTES * 60 * 1000
-        );
+        if (shouldRunCommandWork) {
+          const expiresAt = new Date(
+            now().getTime() + dependencies.config.PENDING_LABEL_TTL_MINUTES * 60 * 1000
+          );
 
-        await dependencies.pendingSenderLabels.createPendingLabel({
-          userId: user.id,
-          label: senderLabel.label,
-          normalizedLabel: senderLabel.normalizedLabel,
-          expiresAt
-        });
+          await dependencies.pendingSenderLabels.createPendingLabel({
+            userId: user.id,
+            label: senderLabel.label,
+            normalizedLabel: senderLabel.normalizedLabel,
+            expiresAt
+          });
+          await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
+        }
 
         await sendReply(
           message,
+          inboundMessage,
+          user,
+          dependencies.outboundMessages,
           dependencies.whatsapp,
-          `Got it. I will label the next voice note as from ${senderLabel.label}.`
+          'sender_label',
+          `Got it. I will label the next voice note as from ${senderLabel.label}.`,
+          0,
+          now
         );
         return { handled: true, command: 'sender_label' };
       }
 
-      await sendReply(message, dependencies.whatsapp, unsupportedMessage);
+      if (shouldRunCommandWork) {
+        await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
+      }
+
+      await sendReply(
+        message,
+        inboundMessage,
+        user,
+        dependencies.outboundMessages,
+        dependencies.whatsapp,
+        'unsupported_text',
+        unsupportedMessage,
+        0,
+        now
+      );
       return { handled: true, command: 'unsupported_text' };
     }
   };
