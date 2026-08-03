@@ -12,7 +12,7 @@ const envSchema = z.object({
   WHATSAPP_GRAPH_API_VERSION: z.string().min(1).default('v23.0'),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default('gpt-4o-mini-transcribe'),
-  OPENAI_SUMMARY_MODEL: z.string().min(1).optional(),
+  OPENAI_SUMMARY_MODEL: z.string().min(1).default('gpt-4o-mini'),
   MAX_AUDIO_BYTES: z.coerce.number().int().positive().default(16_777_216),
   MAX_AUDIO_DURATION_SECONDS: z.coerce.number().int().positive().default(600),
   MAX_DAILY_MESSAGES_PER_USER: z.coerce.number().int().positive().default(10),

@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:db": "vitest run test/db/repositories.integration.test.ts",
+    "test:openai": "vitest run test/integration/openai-processing.integration.test.ts",
     "test:watch": "vitest"
   },
   "engines": {
@@ -23,6 +24,7 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "fastify": "^5.4.0",
+    "openai": "^7.3.0",
     "pg": "^8.22.0",
     "pino": "^9.7.0",
     "zod": "^3.25.76"

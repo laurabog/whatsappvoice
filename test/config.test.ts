@@ -13,6 +13,7 @@ describe('loadConfig', () => {
     expect(config.PORT).toBe(3000);
     expect(config.WHATSAPP_GRAPH_API_VERSION).toBe('v23.0');
     expect(config.OPENAI_TRANSCRIPTION_MODEL).toBe('gpt-4o-mini-transcribe');
+    expect(config.OPENAI_SUMMARY_MODEL).toBe('gpt-4o-mini');
     expect(config.MAX_AUDIO_DURATION_SECONDS).toBe(600);
     expect(config.TRANSCRIPT_RETENTION_DAYS).toBe(30);
     expect(config.WORKER_POLL_INTERVAL_MS).toBe(5000);
