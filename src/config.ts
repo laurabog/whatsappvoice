@@ -1,16 +1,21 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
+const optionalNonEmptyString = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().min(1).optional()
+);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
-  DATABASE_URL: z.string().min(1).optional(),
-  WHATSAPP_VERIFY_TOKEN: z.string().min(1).optional(),
-  WHATSAPP_ACCESS_TOKEN: z.string().min(1).optional(),
-  WHATSAPP_APP_SECRET: z.string().min(1).optional(),
-  WHATSAPP_PHONE_NUMBER_ID: z.string().min(1).optional(),
+  DATABASE_URL: optionalNonEmptyString,
+  WHATSAPP_VERIFY_TOKEN: optionalNonEmptyString,
+  WHATSAPP_ACCESS_TOKEN: optionalNonEmptyString,
+  WHATSAPP_APP_SECRET: optionalNonEmptyString,
+  WHATSAPP_PHONE_NUMBER_ID: optionalNonEmptyString,
   WHATSAPP_GRAPH_API_VERSION: z.string().min(1).default('v23.0'),
-  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_API_KEY: optionalNonEmptyString,
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default('gpt-4o-mini-transcribe'),
   OPENAI_SUMMARY_MODEL: z.string().min(1).default('gpt-4o-mini'),
   MAX_AUDIO_BYTES: z.coerce.number().int().positive().default(16_777_216),
@@ -26,7 +31,7 @@ const envSchema = z.object({
   RETENTION_CLEANUP_INTERVAL_MS: z.coerce.number().int().positive().default(60 * 60 * 1000),
   AUDIO_DURATION_PROBE: z.enum(['disabled', 'ffprobe']).default('disabled'),
   TEMP_AUDIO_DIR: z.string().min(1).default('/tmp/whatsapp-summary-audio'),
-  SENTRY_DSN: z.string().min(1).optional()
+  SENTRY_DSN: optionalNonEmptyString
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

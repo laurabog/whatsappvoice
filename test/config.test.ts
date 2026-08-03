@@ -32,6 +32,26 @@ describe('loadConfig', () => {
     expect(config.MAX_DAILY_MESSAGES_PER_USER).toBe(7);
   });
 
+  it('treats blank optional secrets as missing', () => {
+    const config = loadConfig({
+      DATABASE_URL: '',
+      WHATSAPP_VERIFY_TOKEN: '',
+      WHATSAPP_ACCESS_TOKEN: '',
+      WHATSAPP_APP_SECRET: '',
+      WHATSAPP_PHONE_NUMBER_ID: '',
+      OPENAI_API_KEY: '',
+      SENTRY_DSN: ''
+    });
+
+    expect(config.DATABASE_URL).toBeUndefined();
+    expect(config.WHATSAPP_VERIFY_TOKEN).toBeUndefined();
+    expect(config.WHATSAPP_ACCESS_TOKEN).toBeUndefined();
+    expect(config.WHATSAPP_APP_SECRET).toBeUndefined();
+    expect(config.WHATSAPP_PHONE_NUMBER_ID).toBeUndefined();
+    expect(config.OPENAI_API_KEY).toBeUndefined();
+    expect(config.SENTRY_DSN).toBeUndefined();
+  });
+
   it('rejects invalid numeric values', () => {
     expect(() => loadConfig({ PORT: '0' })).toThrow();
   });
