@@ -1,0 +1,39 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "waba_123",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15551234567",
+              "phone_number_id": "phone_number_123"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Laura"
+                },
+                "wa_id": "31612345678"
+              }
+            ],
+            "messages": [
+              {
+                "from": "31612345678",
+                "id": "wamid.text-123",
+                "timestamp": "1785763200",
+                "type": "text",
+                "text": {
+                  "body": "HELP"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
