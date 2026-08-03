@@ -9,8 +9,10 @@
     "start:api": "node dist/api.js",
     "start:worker": "node dist/worker.js",
     "build": "tsc",
+    "db:migrate": "tsx src/db/migrations.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:db": "vitest run test/db/repositories.integration.test.ts",
     "test:watch": "vitest"
   },
   "engines": {
@@ -18,11 +20,13 @@
   },
   "dependencies": {
     "fastify": "^5.4.0",
+    "pg": "^8.22.0",
     "pino": "^9.7.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",
+    "@types/pg": "^8.20.3",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
