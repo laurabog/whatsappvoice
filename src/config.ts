@@ -27,6 +27,49 @@ const envSchema = z.object({
 
 export type AppConfig = z.infer<typeof envSchema>;
 
+export const whatsappMetaEnvKeys = [
+  'WHATSAPP_APP_SECRET',
+  'WHATSAPP_ACCESS_TOKEN',
+  'WHATSAPP_PHONE_NUMBER_ID'
+] as const;
+
+export const whatsappWebhookEnvKeys = [
+  'WHATSAPP_VERIFY_TOKEN',
+  ...whatsappMetaEnvKeys
+] as const;
+
+export type WhatsAppMetaEnvKey = (typeof whatsappMetaEnvKeys)[number];
+export type WhatsAppWebhookEnvKey = (typeof whatsappWebhookEnvKeys)[number];
+
+export type ConfigStatus<Key extends keyof AppConfig> = {
+  configured: boolean;
+  missing: Key[];
+};
+
+function getConfigStatus<Key extends keyof AppConfig>(
+  config: Pick<AppConfig, Key>,
+  keys: readonly Key[]
+): ConfigStatus<Key> {
+  const missing = keys.filter((key) => !config[key]);
+
+  return {
+    configured: missing.length === 0,
+    missing
+  };
+}
+
+export function getWhatsAppMetaConfigStatus(
+  config: Pick<AppConfig, WhatsAppMetaEnvKey>
+): ConfigStatus<WhatsAppMetaEnvKey> {
+  return getConfigStatus(config, whatsappMetaEnvKeys);
+}
+
+export function getWhatsAppWebhookConfigStatus(
+  config: Pick<AppConfig, WhatsAppWebhookEnvKey>
+): ConfigStatus<WhatsAppWebhookEnvKey> {
+  return getConfigStatus(config, whatsappWebhookEnvKeys);
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return envSchema.parse(env);
 }

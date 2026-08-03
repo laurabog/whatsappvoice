@@ -9,6 +9,7 @@
     "start:api": "node dist/api.js",
     "start:worker": "node dist/worker.js",
     "build": "tsc",
+    "config:check": "tsx src/config-check.ts",
     "db:check": "tsx src/db/check.ts",
     "db:migrate": "tsx src/db/migrations.ts",
     "typecheck": "tsc --noEmit",

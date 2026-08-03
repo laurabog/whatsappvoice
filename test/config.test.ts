@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { loadConfig } from '../src/config.js';
+import {
+  getWhatsAppMetaConfigStatus,
+  getWhatsAppWebhookConfigStatus,
+  loadConfig
+} from '../src/config.js';
 
 describe('loadConfig', () => {
   it('loads development defaults', () => {
@@ -25,5 +29,30 @@ describe('loadConfig', () => {
 
   it('rejects invalid numeric values', () => {
     expect(() => loadConfig({ PORT: '0' })).toThrow();
+  });
+
+  it('reports missing Meta-side WhatsApp config', () => {
+    const config = loadConfig({
+      WHATSAPP_APP_SECRET: 'app-secret'
+    });
+
+    expect(getWhatsAppMetaConfigStatus(config)).toEqual({
+      configured: false,
+      missing: ['WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID']
+    });
+  });
+
+  it('reports complete WhatsApp webhook config', () => {
+    const config = loadConfig({
+      WHATSAPP_VERIFY_TOKEN: 'verify-token',
+      WHATSAPP_APP_SECRET: 'app-secret',
+      WHATSAPP_ACCESS_TOKEN: 'access-token',
+      WHATSAPP_PHONE_NUMBER_ID: 'phone-number-id'
+    });
+
+    expect(getWhatsAppWebhookConfigStatus(config)).toEqual({
+      configured: true,
+      missing: []
+    });
   });
 });
