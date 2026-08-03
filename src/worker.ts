@@ -9,14 +9,17 @@ import { createAudioMessageProcessor } from './jobs/process-audio-message.js';
 import { createJobStore } from './jobs/job-store.js';
 import { createJobWorker } from './jobs/worker.js';
 import { createLogger } from './observability/logger.js';
+import { createWhatsAppMediaAudioSource } from './services/media-downloader.js';
 import { MetaWhatsAppClient } from './services/meta-whatsapp-client.js';
-import { FakeSummarizer } from './services/summarizer.js';
-import { FakeTranscriber } from './services/transcriber.js';
+import { FakeSummarizer, OpenAISummarizer } from './services/summarizer.js';
+import { FakeTranscriber, OpenAITranscriber } from './services/transcriber.js';
 
 const config = loadConfig();
 const logger = createLogger(config.NODE_ENV);
 const db = createDbPool(config);
 const jobStore = createJobStore(db);
+const whatsapp = new MetaWhatsAppClient(config);
+const useOpenAIProcessing = Boolean(config.OPENAI_API_KEY);
 const processor = createAudioMessageProcessor({
   config,
   jobStore,
@@ -24,9 +27,15 @@ const processor = createAudioMessageProcessor({
   summaries: createSummariesRepository(db),
   transcripts: createTranscriptsRepository(db),
   outboundMessages: createOutboundMessagesRepository(db),
-  whatsapp: new MetaWhatsAppClient(config),
-  transcriber: new FakeTranscriber(),
-  summarizer: new FakeSummarizer()
+  whatsapp,
+  transcriber: useOpenAIProcessing ? new OpenAITranscriber(config) : new FakeTranscriber(),
+  summarizer: useOpenAIProcessing ? new OpenAISummarizer(config) : new FakeSummarizer(),
+  audioSource: useOpenAIProcessing
+    ? createWhatsAppMediaAudioSource({
+        config,
+        mediaClient: whatsapp
+      })
+    : undefined
 });
 const worker = createJobWorker({
   jobStore,

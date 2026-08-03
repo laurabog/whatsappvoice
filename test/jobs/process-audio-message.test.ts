@@ -3,9 +3,13 @@ import type { PendingSenderLabelRecord } from '../../src/db/repositories/pending
 import type { InsertSummaryInput, SummaryRecord } from '../../src/db/repositories/summaries.js';
 import type { InsertTranscriptInput, TranscriptRecord } from '../../src/db/repositories/transcripts.js';
 import type { AudioJobContext } from '../../src/jobs/job-store.js';
-import { createAudioMessageProcessor } from '../../src/jobs/process-audio-message.js';
-import { FakeSummarizer } from '../../src/services/summarizer.js';
-import { FakeTranscriber } from '../../src/services/transcriber.js';
+import {
+  createAudioMessageProcessor,
+  type ProcessAudioMessageDependencies
+} from '../../src/jobs/process-audio-message.js';
+import type { AudioSource } from '../../src/services/media-downloader.js';
+import { FakeSummarizer, type Summarizer } from '../../src/services/summarizer.js';
+import { FakeTranscriber, type Transcriber } from '../../src/services/transcriber.js';
 import type { SendTextInput } from '../../src/services/whatsapp-client.js';
 import { createInMemoryOutboundMessages } from '../helpers/in-memory-outbound.js';
 
@@ -105,12 +109,15 @@ function makeTranscript(input: InsertTranscriptInput): TranscriptRecord {
   };
 }
 
-function makeDependencies() {
+function makeDependencies(): {
+  dependencies: ProcessAudioMessageDependencies;
+  sentMessages: SendTextInput[];
+} {
   let pendingLabel: PendingSenderLabelRecord | null = makePendingLabel();
   let storedSummary: SummaryRecord | null = null;
   let storedTranscript: TranscriptRecord | null = null;
   const sentMessages: SendTextInput[] = [];
-  const dependencies = {
+  const dependencies: ProcessAudioMessageDependencies = {
     config: {
       SUMMARY_RETENTION_DAYS: 30,
       TRANSCRIPT_RETENTION_DAYS: 30
@@ -215,6 +222,75 @@ describe('createAudioMessageProcessor', () => {
       inboundMessageId: 'inbound-1',
       completedAt: now
     });
+  });
+
+  it('passes prepared audio files into transcription and cleans them up after success', async () => {
+    const { dependencies } = makeDependencies();
+    const cleanup = vi.fn(async () => undefined);
+    const audioSource: AudioSource = {
+      prepareAudio: vi.fn(async () => ({
+        audioPath: '/tmp/media-audio.ogg',
+        mimeType: 'audio/ogg; codecs=opus',
+        bytes: 5,
+        cleanup
+      }))
+    };
+    const transcriber: Transcriber = {
+      transcribe: vi.fn(async () => {
+        const text = 'Please review the plan and reply when convenient.';
+
+        return {
+          text,
+          provider: 'openai' as const,
+          model: 'gpt-4o-mini-transcribe',
+          latencyMs: 42,
+          characterCount: text.length
+        };
+      })
+    };
+    dependencies.audioSource = audioSource;
+    dependencies.transcriber = transcriber;
+    const processor = createAudioMessageProcessor(dependencies);
+
+    await processor.processAudioMessage('job-1');
+
+    expect(audioSource.prepareAudio).toHaveBeenCalledWith({
+      mediaId: 'media_audio_123',
+      mimeType: 'audio/ogg; codecs=opus'
+    });
+    expect(transcriber.transcribe).toHaveBeenCalledWith({
+      mediaId: 'media_audio_123',
+      audioPath: '/tmp/media-audio.ogg',
+      mimeType: 'audio/ogg; codecs=opus',
+      language: 'en'
+    });
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it('cleans prepared audio files when summarization fails', async () => {
+    const { dependencies } = makeDependencies();
+    const cleanup = vi.fn(async () => undefined);
+    const audioSource: AudioSource = {
+      prepareAudio: vi.fn(async () => ({
+        audioPath: '/tmp/media-audio.ogg',
+        mimeType: 'audio/ogg; codecs=opus',
+        bytes: 5,
+        cleanup
+      }))
+    };
+    const summarizer: Summarizer = {
+      summarize: vi.fn(async () => {
+        throw new Error('summary failed');
+      })
+    };
+    dependencies.audioSource = audioSource;
+    dependencies.summarizer = summarizer;
+    const processor = createAudioMessageProcessor(dependencies);
+
+    await expect(processor.processAudioMessage('job-1')).rejects.toThrow('summary failed');
+
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(dependencies.jobStore.markCompleted).not.toHaveBeenCalled();
   });
 
   it('does not send a duplicate summary reply on a repeated processor run', async () => {

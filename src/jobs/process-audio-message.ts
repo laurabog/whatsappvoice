@@ -7,6 +7,7 @@ import {
   sendWhatsAppTextOnce,
   type OutboundMessagesForSending
 } from '../services/idempotent-whatsapp-sender.js';
+import type { AudioSource, PreparedAudio } from '../services/media-downloader.js';
 import {
   formatSummaryReply,
   type SummaryOutput,
@@ -52,6 +53,7 @@ export type ProcessAudioMessageDependencies = {
   whatsapp: WhatsAppTextSender;
   transcriber: Transcriber;
   summarizer: Summarizer;
+  audioSource?: AudioSource;
   now?: () => Date;
 };
 
@@ -122,82 +124,97 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
         context.user.id,
         processingStartedAt
       );
-      const transcription = await dependencies.transcriber.transcribe({
-        mediaId: context.inboundMessage.mediaId,
-        mimeType: context.inboundMessage.mimeType,
-        language: 'en'
-      });
-      const summary = await dependencies.summarizer.summarize({
-        transcript: transcription.text
-      });
-      const senderLabel = resolveSenderLabel({
-        pendingLabel,
-        summary
-      });
-      const expiresAt = addDays(
-        now(),
-        Math.min(
-          dependencies.config.SUMMARY_RETENTION_DAYS,
-          dependencies.config.TRANSCRIPT_RETENTION_DAYS
-        )
-      );
 
-      const summaryResult = await dependencies.summaries.insertIfNew({
-        userId: context.user.id,
-        inboundMessageId: context.inboundMessage.id,
-        fromLabel: senderLabel.label,
-        fromLabelConfidence: senderLabel.confidence,
-        oneSentenceSummary: summary.oneSentenceSummary,
-        shortSummary: summary.shortSummary,
-        importantPoints: summary.importantPoints,
-        questionsOrRequests: summary.questionsOrRequests,
-        datesOrCommitments: summary.datesOrCommitments,
-        replyNeeded: summary.replyNeeded,
-        listeningRecommendation: summary.listeningRecommendation,
-        expiresAt
-      });
-      const transcriptResult = await dependencies.transcripts.insertIfNew({
-        userId: context.user.id,
-        inboundMessageId: context.inboundMessage.id,
-        summaryId: summaryResult.record.id,
-        text: transcription.text,
-        expiresAt
-      });
-      const replySummary = summaryResult.inserted
-        ? summary
-        : summaryOutputFromRecord(summaryResult.record);
-      const replyChunks = formatSummaryReply({
-        fromLabel: summaryResult.record.fromLabel,
-        summary: replySummary
-      });
+      let preparedAudio: PreparedAudio | null = null;
 
-      for (const [index, body] of replyChunks.entries()) {
-        await sendWhatsAppTextOnce({
-          outboundMessages: dependencies.outboundMessages,
-          whatsapp: dependencies.whatsapp,
-          inboundMessageId: context.inboundMessage.id,
-          userId: context.user.id,
-          replyKind: 'summary',
-          chunkIndex: index,
-          to: context.user.whatsappUserId,
-          body,
-          contextMessageId: context.inboundMessage.whatsappMessageId,
-          now
+      try {
+        preparedAudio = dependencies.audioSource
+          ? await dependencies.audioSource.prepareAudio({
+              mediaId: context.inboundMessage.mediaId,
+              mimeType: context.inboundMessage.mimeType
+            })
+          : null;
+
+        const transcription = await dependencies.transcriber.transcribe({
+          mediaId: context.inboundMessage.mediaId,
+          audioPath: preparedAudio?.audioPath,
+          mimeType: preparedAudio?.mimeType ?? context.inboundMessage.mimeType,
+          language: 'en'
         });
+        const summary = await dependencies.summarizer.summarize({
+          transcript: transcription.text
+        });
+        const senderLabel = resolveSenderLabel({
+          pendingLabel,
+          summary
+        });
+        const expiresAt = addDays(
+          now(),
+          Math.min(
+            dependencies.config.SUMMARY_RETENTION_DAYS,
+            dependencies.config.TRANSCRIPT_RETENTION_DAYS
+          )
+        );
+
+        const summaryResult = await dependencies.summaries.insertIfNew({
+          userId: context.user.id,
+          inboundMessageId: context.inboundMessage.id,
+          fromLabel: senderLabel.label,
+          fromLabelConfidence: senderLabel.confidence,
+          oneSentenceSummary: summary.oneSentenceSummary,
+          shortSummary: summary.shortSummary,
+          importantPoints: summary.importantPoints,
+          questionsOrRequests: summary.questionsOrRequests,
+          datesOrCommitments: summary.datesOrCommitments,
+          replyNeeded: summary.replyNeeded,
+          listeningRecommendation: summary.listeningRecommendation,
+          expiresAt
+        });
+        const transcriptResult = await dependencies.transcripts.insertIfNew({
+          userId: context.user.id,
+          inboundMessageId: context.inboundMessage.id,
+          summaryId: summaryResult.record.id,
+          text: transcription.text,
+          expiresAt
+        });
+        const replySummary = summaryResult.inserted
+          ? summary
+          : summaryOutputFromRecord(summaryResult.record);
+        const replyChunks = formatSummaryReply({
+          fromLabel: summaryResult.record.fromLabel,
+          summary: replySummary
+        });
+
+        for (const [index, body] of replyChunks.entries()) {
+          await sendWhatsAppTextOnce({
+            outboundMessages: dependencies.outboundMessages,
+            whatsapp: dependencies.whatsapp,
+            inboundMessageId: context.inboundMessage.id,
+            userId: context.user.id,
+            replyKind: 'summary',
+            chunkIndex: index,
+            to: context.user.whatsappUserId,
+            body,
+            contextMessageId: context.inboundMessage.whatsappMessageId,
+            now
+          });
+        }
+
+        await dependencies.jobStore.markCompleted({
+          jobId: context.job.id,
+          inboundMessageId: context.inboundMessage.id,
+          completedAt: now()
+        });
+
+        return {
+          processed: true,
+          summaryId: summaryResult.record.id,
+          transcriptId: transcriptResult.record.id,
+          replyCount: replyChunks.length
+        };
+      } finally {
+        await preparedAudio?.cleanup().catch(() => undefined);
       }
-
-      await dependencies.jobStore.markCompleted({
-        jobId: context.job.id,
-        inboundMessageId: context.inboundMessage.id,
-        completedAt: now()
-      });
-
-      return {
-        processed: true,
-        summaryId: summaryResult.record.id,
-        transcriptId: transcriptResult.record.id,
-        replyCount: replyChunks.length
-      };
     }
   };
 }

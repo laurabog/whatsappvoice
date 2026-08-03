@@ -1,5 +1,14 @@
+import { stat, writeFile } from 'node:fs/promises';
 import type { AppConfig } from '../config.js';
-import type { SendTextInput, SendTextResult, WhatsAppTextSender } from './whatsapp-client.js';
+import type {
+  DownloadMediaInput,
+  DownloadMediaResult,
+  SendTextInput,
+  SendTextResult,
+  WhatsAppMediaClient,
+  WhatsAppMediaUrl,
+  WhatsAppTextSender
+} from './whatsapp-client.js';
 
 type MetaWhatsAppClientConfig = Pick<
   AppConfig,
@@ -12,7 +21,28 @@ type MetaSendMessageResponse = {
   }>;
 };
 
-export class MetaWhatsAppClient implements WhatsAppTextSender {
+type MetaMediaUrlResponse = {
+  id?: string;
+  url?: string;
+  mime_type?: string;
+  file_size?: string | number;
+  sha256?: string;
+};
+
+function parseNullableNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+export class MetaWhatsAppClient implements WhatsAppTextSender, WhatsAppMediaClient {
   private readonly accessToken: string;
   private readonly graphApiVersion: string;
   private readonly phoneNumberId: string;
@@ -75,5 +105,63 @@ export class MetaWhatsAppClient implements WhatsAppTextSender {
     }
 
     return { whatsappMessageId };
+  }
+
+  async getMediaUrl(mediaId: string): Promise<WhatsAppMediaUrl> {
+    const url = new URL(
+      `https://graph.facebook.com/${this.graphApiVersion}/${encodeURIComponent(mediaId)}`
+    );
+    url.searchParams.set('phone_number_id', this.phoneNumberId);
+
+    const response = await fetch(url, {
+      headers: {
+        authorization: `Bearer ${this.accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`WhatsApp getMediaUrl failed with ${response.status}: ${errorBody}`);
+    }
+
+    const payload = (await response.json()) as MetaMediaUrlResponse;
+
+    if (!payload.url) {
+      throw new Error('WhatsApp getMediaUrl response did not include a media URL');
+    }
+
+    return {
+      mediaId: payload.id ?? mediaId,
+      url: payload.url,
+      mimeType: payload.mime_type ?? null,
+      fileSizeBytes: parseNullableNumber(payload.file_size),
+      sha256: payload.sha256 ?? null
+    };
+  }
+
+  async downloadMediaToFile(input: DownloadMediaInput): Promise<DownloadMediaResult> {
+    const response = await fetch(input.url, {
+      headers: {
+        authorization: `Bearer ${this.accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`WhatsApp downloadMedia failed with ${response.status}: ${errorBody}`);
+    }
+
+    if (!response.body) {
+      throw new Error('WhatsApp downloadMedia response did not include a body');
+    }
+
+    await writeFile(input.destinationPath, Buffer.from(await response.arrayBuffer()));
+    const downloadedFile = await stat(input.destinationPath);
+
+    return {
+      destinationPath: input.destinationPath,
+      bytes: downloadedFile.size,
+      mimeType: response.headers.get('content-type')
+    };
   }
 }
