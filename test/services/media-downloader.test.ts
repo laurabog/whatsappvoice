@@ -115,7 +115,7 @@ describe('createWhatsAppMediaAudioSource', () => {
           return {
             destinationPath,
             bytes: 5,
-            mimeType: 'audio/ogg'
+            mimeType: 'text/plain'
           };
         })
       };

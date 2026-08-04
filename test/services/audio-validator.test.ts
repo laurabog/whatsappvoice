@@ -53,18 +53,16 @@ describe('audio validation', () => {
     ).not.toThrow();
   });
 
-  it('rejects unsupported ogg audio without opus codec metadata', () => {
-    expectAudioValidationCode(
-      () =>
-        validateAudioMetadata(
-          {
-            mimeType: 'audio/ogg',
-            fileSizeBytes: 9
-          },
-          config
-        ),
-      'unsupported_audio_mime_type'
-    );
+  it('accepts WhatsApp ogg audio when codec metadata is omitted', () => {
+    expect(() =>
+      validateAudioMetadata(
+        {
+          mimeType: 'audio/ogg',
+          fileSizeBytes: 9
+        },
+        config
+      )
+    ).not.toThrow();
   });
 
   it('rejects audio that is larger than the configured byte limit', () => {

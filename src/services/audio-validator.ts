@@ -54,7 +54,7 @@ function isAcceptedAudioMimeType(mimeType: string | null): boolean {
   }
 
   if (normalized.startsWith('audio/ogg')) {
-    return normalized.includes('codecs=opus');
+    return true;
   }
 
   return [
