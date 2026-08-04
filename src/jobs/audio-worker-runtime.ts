@@ -81,6 +81,9 @@ export function createAudioWorkerRuntime({
   const useOpenAIProcessing = Boolean(config.OPENAI_API_KEY && hasWhatsAppSendCredentials);
   const durationProbe =
     config.AUDIO_DURATION_PROBE === 'ffprobe' ? new FfprobeAudioDurationProbe() : undefined;
+  const logAudioProgress = (event: unknown) => {
+    logger?.info(event, 'Audio job step updated');
+  };
   const processor = createAudioMessageProcessor({
     config,
     jobStore,
@@ -95,12 +98,11 @@ export function createAudioWorkerRuntime({
       ? createWhatsAppMediaAudioSource({
           config,
           mediaClient: whatsapp,
-          durationProbe
+          durationProbe,
+          onProgress: logAudioProgress
         })
       : undefined,
-    onProgress: (event) => {
-      logger?.info(event, 'Audio job step updated');
-    }
+    onProgress: logAudioProgress
   });
   const processAudioJob = async (jobId: string) => {
     logger?.info({ jobId }, 'Audio job processing started');

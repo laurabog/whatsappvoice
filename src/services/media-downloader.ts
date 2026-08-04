@@ -17,6 +17,7 @@ export type PreparedAudio = {
 };
 
 export type AudioSourceInput = {
+  jobId?: string;
   mediaId: string;
   mimeType: string | null;
 };
@@ -24,6 +25,15 @@ export type AudioSourceInput = {
 export interface AudioSource {
   prepareAudio(input: AudioSourceInput): Promise<PreparedAudio>;
 }
+
+export type WhatsAppMediaAudioSourceProgress = {
+  jobId?: string;
+  step: 'media_url' | 'media_download' | 'media_validate';
+  status: 'started' | 'completed';
+  durationMs?: number | null;
+  mimeType?: string | null;
+  bytes?: number | null;
+};
 
 type WhatsAppMediaAudioSourceConfig = Pick<
   AppConfig,
@@ -64,10 +74,26 @@ export function createWhatsAppMediaAudioSource(input: {
   config: WhatsAppMediaAudioSourceConfig;
   mediaClient: WhatsAppMediaClient;
   durationProbe?: AudioDurationProbe;
+  onProgress?: (event: WhatsAppMediaAudioSourceProgress) => void;
 }): AudioSource {
   return {
     async prepareAudio(source): Promise<PreparedAudio> {
+      const mediaUrlStartedAtMs = Date.now();
+      input.onProgress?.({
+        jobId: source.jobId,
+        step: 'media_url',
+        status: 'started',
+        mimeType: source.mimeType
+      });
       const media = await input.mediaClient.getMediaUrl(source.mediaId);
+      input.onProgress?.({
+        jobId: source.jobId,
+        step: 'media_url',
+        status: 'completed',
+        durationMs: Date.now() - mediaUrlStartedAtMs,
+        mimeType: media.mimeType ?? source.mimeType,
+        bytes: media.fileSizeBytes
+      });
       const mimeType = media.mimeType ?? source.mimeType;
 
       validateAudioMetadata(
@@ -85,11 +111,34 @@ export function createWhatsAppMediaAudioSource(input: {
       );
 
       try {
+        const downloadStartedAtMs = Date.now();
+        input.onProgress?.({
+          jobId: source.jobId,
+          step: 'media_download',
+          status: 'started',
+          mimeType
+        });
         const download = await input.mediaClient.downloadMediaToFile({
           url: media.url,
           destinationPath: audioPath
         });
+        input.onProgress?.({
+          jobId: source.jobId,
+          step: 'media_download',
+          status: 'completed',
+          durationMs: Date.now() - downloadStartedAtMs,
+          mimeType: download.mimeType ?? mimeType,
+          bytes: download.bytes
+        });
 
+        const validateStartedAtMs = Date.now();
+        input.onProgress?.({
+          jobId: source.jobId,
+          step: 'media_validate',
+          status: 'started',
+          mimeType: download.mimeType ?? mimeType,
+          bytes: download.bytes
+        });
         await validateAudioFile(
           {
             path: audioPath,
@@ -98,6 +147,14 @@ export function createWhatsAppMediaAudioSource(input: {
           input.config,
           input.durationProbe
         );
+        input.onProgress?.({
+          jobId: source.jobId,
+          step: 'media_validate',
+          status: 'completed',
+          durationMs: Date.now() - validateStartedAtMs,
+          mimeType: download.mimeType ?? mimeType,
+          bytes: download.bytes
+        });
 
         return {
           audioPath,

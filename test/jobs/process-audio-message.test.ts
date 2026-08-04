@@ -268,6 +268,7 @@ describe('createAudioMessageProcessor', () => {
     await processor.processAudioMessage('job-1');
 
     expect(audioSource.prepareAudio).toHaveBeenCalledWith({
+      jobId: 'job-1',
       mediaId: 'media_audio_123',
       mimeType: 'audio/ogg; codecs=opus'
     });

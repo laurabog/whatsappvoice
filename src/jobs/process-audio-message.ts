@@ -25,6 +25,31 @@ export type ProcessAudioMessageResult = {
   replyCount: number;
 };
 
+export type AudioJobProgress = {
+  jobId: string;
+  step:
+    | 'context'
+    | 'media'
+    | 'media_url'
+    | 'media_download'
+    | 'media_validate'
+    | 'transcription'
+    | 'summary'
+    | 'storage'
+    | 'reply';
+  status: 'started' | 'completed';
+  durationMs?: number | null;
+  inboundMessageId?: string;
+  messageType?: string;
+  mimeType?: string | null;
+  bytes?: number | null;
+  transcriptCharacters?: number;
+  summaryInserted?: boolean;
+  transcriptInserted?: boolean;
+  replyChunkIndex?: number;
+  replyCount?: number;
+};
+
 export type ProcessAudioMessageDependencies = {
   config: Pick<AppConfig, 'SUMMARY_RETENTION_DAYS' | 'TRANSCRIPT_RETENTION_DAYS'>;
   jobStore: {
@@ -62,12 +87,7 @@ export type ProcessAudioMessageDependencies = {
   transcriber: Transcriber;
   summarizer: Summarizer;
   audioSource?: AudioSource;
-  onProgress?: (input: {
-    jobId: string;
-    step: 'media' | 'transcription' | 'summary' | 'reply';
-    status: 'started' | 'completed';
-    durationMs?: number | null;
-  }) => void;
+  onProgress?: (input: AudioJobProgress) => void;
   now?: () => Date;
 };
 
@@ -128,10 +148,25 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
 
   return {
     async processAudioMessage(jobId: string): Promise<ProcessAudioMessageResult> {
+      const contextStartedAtMs = Date.now();
+      dependencies.onProgress?.({
+        jobId,
+        step: 'context',
+        status: 'started'
+      });
       const context = await dependencies.jobStore.findJobContext(jobId);
       if (!context) {
         throw new Error(`Summary job ${jobId} was not found`);
       }
+      dependencies.onProgress?.({
+        jobId,
+        step: 'context',
+        status: 'completed',
+        durationMs: elapsedMs(contextStartedAtMs),
+        inboundMessageId: context.inboundMessage.id,
+        messageType: context.inboundMessage.messageType,
+        mimeType: context.inboundMessage.mimeType
+      });
 
       if (context.inboundMessage.messageType !== 'audio' || !context.inboundMessage.mediaId) {
         throw new Error(`Summary job ${jobId} does not reference an audio message`);
@@ -152,6 +187,7 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
         });
         preparedAudio = dependencies.audioSource
           ? await dependencies.audioSource.prepareAudio({
+              jobId,
               mediaId: context.inboundMessage.mediaId,
               mimeType: context.inboundMessage.mimeType
             })
@@ -161,7 +197,9 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
           jobId,
           step: 'media',
           status: 'completed',
-          durationMs: downloadLatencyMs
+          durationMs: downloadLatencyMs,
+          bytes: preparedAudio?.bytes ?? null,
+          mimeType: preparedAudio?.mimeType ?? context.inboundMessage.mimeType
         });
 
         const transcriptionStartedAtMs = Date.now();
@@ -181,7 +219,8 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
           jobId,
           step: 'transcription',
           status: 'completed',
-          durationMs: transcriptionLatencyMs
+          durationMs: transcriptionLatencyMs,
+          transcriptCharacters: transcription.characterCount
         });
 
         const summaryStartedAtMs = Date.now();
@@ -218,6 +257,13 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
           )
         );
 
+        const storageStartedAtMs = Date.now();
+        dependencies.onProgress?.({
+          jobId,
+          step: 'storage',
+          status: 'started',
+          inboundMessageId: context.inboundMessage.id
+        });
         const summaryResult = await dependencies.summaries.insertIfNew({
           userId: context.user.id,
           inboundMessageId: context.inboundMessage.id,
@@ -239,6 +285,15 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
           text: transcription.text,
           expiresAt
         });
+        dependencies.onProgress?.({
+          jobId,
+          step: 'storage',
+          status: 'completed',
+          durationMs: elapsedMs(storageStartedAtMs),
+          inboundMessageId: context.inboundMessage.id,
+          summaryInserted: summaryResult.inserted,
+          transcriptInserted: transcriptResult.inserted
+        });
         const replySummary = summaryResult.inserted
           ? summary
           : summaryOutputFromRecord(summaryResult.record);
@@ -253,7 +308,9 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
           dependencies.onProgress?.({
             jobId,
             step: 'reply',
-            status: 'started'
+            status: 'started',
+            replyChunkIndex: index,
+            replyCount: replyChunks.length
           });
           const replyStartedAtMs = Date.now();
           await sendWhatsAppTextOnce({
@@ -272,7 +329,9 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
             jobId,
             step: 'reply',
             status: 'completed',
-            durationMs: elapsedMs(replyStartedAtMs)
+            durationMs: elapsedMs(replyStartedAtMs),
+            replyChunkIndex: index,
+            replyCount: replyChunks.length
           });
         }
 
