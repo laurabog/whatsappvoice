@@ -6,11 +6,15 @@ import { createPendingSenderLabelsRepository } from '../db/repositories/pending-
 import { createSummaryJobsRepository } from '../db/repositories/summary-jobs.js';
 import { createSummariesRepository } from '../db/repositories/summaries.js';
 import { createTranscriptsRepository } from '../db/repositories/transcripts.js';
-import { createRetentionCleanup } from '../services/retention-cleanup.js';
+import {
+  createRetentionCleanup,
+  type RetentionCleanupResult
+} from '../services/retention-cleanup.js';
 import { FfprobeAudioDurationProbe } from '../services/audio-validator.js';
 import { createWhatsAppMediaAudioSource } from '../services/media-downloader.js';
 import { MetaWhatsAppClient } from '../services/meta-whatsapp-client.js';
 import { FakeSummarizer, OpenAISummarizer } from '../services/summarizer.js';
+import { sendWhatsAppTextOnce } from '../services/idempotent-whatsapp-sender.js';
 import { FakeTranscriber, OpenAITranscriber } from '../services/transcriber.js';
 import type {
   DownloadMediaInput,
@@ -47,7 +51,21 @@ class PlaceholderWhatsAppClient implements WhatsAppTextSender, WhatsAppMediaClie
 export type AudioWorkerRuntime = {
   start(): void;
   stop(): void;
+  drainJobs(input?: { maxJobs?: number }): Promise<AudioDrainResult>;
+  runRetentionCleanup(): Promise<RetentionCleanupResult>;
 };
+
+export type AudioDrainResult = {
+  ok: true;
+  processed: number;
+  completed: number;
+  retryableFailed: number;
+  terminalFailed: number;
+  empty: boolean;
+};
+
+export const terminalFailureMessage =
+  'I could not finish this one — the audio magic fizzled halfway through. Please try forwarding the voice note again ✨';
 
 export type CreateAudioWorkerRuntimeOptions = {
   config: AppConfig;
@@ -116,6 +134,27 @@ export function createAudioWorkerRuntime({
       throw error;
     }
   };
+  const notifyTerminalFailure = async (job: { id: string }) => {
+    const context = await jobStore.findJobContext(job.id);
+    if (!context) {
+      logger?.error(
+        { jobId: job.id },
+        'Could not send terminal failure reply because job context was missing'
+      );
+      return;
+    }
+
+    await sendWhatsAppTextOnce({
+      outboundMessages,
+      whatsapp,
+      inboundMessageId: context.inboundMessage.id,
+      userId: context.user.id,
+      replyKind: 'failure',
+      to: context.user.whatsappUserId,
+      body: terminalFailureMessage,
+      contextMessageId: context.inboundMessage.whatsappMessageId
+    });
+  };
   const cleanup = createRetentionCleanup({
     config,
     summaries,
@@ -130,18 +169,54 @@ export function createAudioWorkerRuntime({
     pollIntervalMs: config.WORKER_POLL_INTERVAL_MS,
     activeJobTimeoutMs: config.ACTIVE_JOB_TIMEOUT_MS,
     processingJobTimeoutMs: config.PROCESSING_JOB_TIMEOUT_MS,
+    onTerminalJobFailed: notifyTerminalFailure,
     onError: reportAsyncError(logger, 'Audio worker poll failed')
   });
   let cleanupTimer: NodeJS.Timeout | null = null;
   let started = false;
 
-  async function runRetentionCleanup() {
+  async function runRetentionCleanup(): Promise<RetentionCleanupResult> {
     try {
       const result = await cleanup.runOnce();
       logger?.info({ result }, 'Retention cleanup finished');
+      return result;
     } catch (error) {
       logger?.error({ error }, 'Retention cleanup failed');
+      throw error;
     }
+  }
+
+  async function drainJobs(input: { maxJobs?: number } = {}): Promise<AudioDrainResult> {
+    const maxJobs = Math.min(Math.max(input.maxJobs ?? 1, 1), 3);
+    const result: AudioDrainResult = {
+      ok: true,
+      processed: 0,
+      completed: 0,
+      retryableFailed: 0,
+      terminalFailed: 0,
+      empty: false
+    };
+
+    for (let index = 0; index < maxJobs; index += 1) {
+      const jobResult = await worker.runOnceDetailed();
+      if (!jobResult.attempted) {
+        result.empty = result.processed === 0;
+        break;
+      }
+
+      result.processed += 1;
+
+      if (jobResult.outcome === 'completed') {
+        result.completed += 1;
+      } else if (jobResult.outcome === 'terminal_failed') {
+        result.terminalFailed += 1;
+      } else {
+        result.retryableFailed += 1;
+      }
+    }
+
+    logger?.info({ result }, 'Audio job drain completed');
+    return result;
   }
 
   return {
@@ -151,14 +226,16 @@ export function createAudioWorkerRuntime({
       }
 
       started = true;
-      worker.start();
-      void worker.runOnce().catch(reportAsyncError(logger, 'Initial audio worker poll failed'));
+      if (config.RUN_IN_PROCESS_WORKER) {
+        worker.start();
+        void worker.runOnce().catch(reportAsyncError(logger, 'Initial audio worker poll failed'));
+      }
       void runRetentionCleanup();
       cleanupTimer = setInterval(() => {
         void runRetentionCleanup();
       }, config.RETENTION_CLEANUP_INTERVAL_MS);
       logger?.info(
-        { useOpenAIProcessing },
+        { useOpenAIProcessing, runInProcessWorker: config.RUN_IN_PROCESS_WORKER },
         'Audio worker runtime started'
       );
     },
@@ -175,6 +252,10 @@ export function createAudioWorkerRuntime({
         cleanupTimer = null;
       }
       logger?.info('Audio worker runtime stopped');
-    }
+    },
+
+    drainJobs,
+
+    runRetentionCleanup
   };
 }

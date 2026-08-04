@@ -93,7 +93,9 @@ function makeDependencies(overrides: {
   const dependencies = {
     config: {
       MAX_DAILY_MESSAGES_PER_USER: 10,
-      AUDIO_LABEL_GRACE_PERIOD_MS: 4000
+      AUDIO_LABEL_GRACE_PERIOD_MS: 4000,
+      QSTASH_DRAIN_DELAY_SECONDS: 2,
+      QSTASH_DRAIN_MAX_JOBS: 1
     },
     whatsapp: {
       sendText: vi.fn(async (input: SendTextInput) => {
@@ -165,6 +167,53 @@ describe('createAudioIntakeHandler', () => {
         contextMessageId: 'wamid.audio-123'
       }
     ]);
+  });
+
+  it('schedules a delayed job drain after queueing audio', async () => {
+    const { dependencies, inbound } = makeDependencies();
+    const jobDrainTrigger = {
+      scheduleDrain: vi.fn(async () => ({
+        scheduled: true as const,
+        mode: 'qstash' as const,
+        messageId: 'msg-1',
+        deduplicated: false
+      }))
+    };
+    const handler = createAudioIntakeHandler({
+      ...dependencies,
+      jobDrainTrigger
+    });
+
+    await handler.handleMessage(makeAudioMessage());
+
+    expect(jobDrainTrigger.scheduleDrain).toHaveBeenCalledWith({
+      inboundMessageId: inbound.id,
+      delaySeconds: 2,
+      maxJobs: 1
+    });
+  });
+
+  it('logs but does not fail intake when scheduling a drain fails', async () => {
+    const { dependencies } = makeDependencies();
+    const error = new Error('qstash unavailable');
+    const onJobDrainTriggerError = vi.fn();
+    const handler = createAudioIntakeHandler({
+      ...dependencies,
+      jobDrainTrigger: {
+        scheduleDrain: vi.fn(async () => {
+          throw error;
+        })
+      },
+      onJobDrainTriggerError
+    });
+
+    await expect(handler.handleMessage(makeAudioMessage())).resolves.toMatchObject({
+      handled: true,
+      queued: true
+    });
+    expect(onJobDrainTriggerError).toHaveBeenCalledWith(error, {
+      inboundMessageId: 'inbound-1'
+    });
   });
 
   it('does not enqueue duplicate audio messages', async () => {

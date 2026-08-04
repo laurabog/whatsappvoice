@@ -6,6 +6,7 @@
   "scripts": {
     "dev:api": "tsx watch src/api.ts",
     "dev:worker": "tsx watch src/worker.ts",
+    "admin:drain-jobs": "tsx src/admin/drain-jobs.ts",
     "start:api": "node dist/api.js",
     "start:worker": "node dist/worker.js",
     "build": "tsc",

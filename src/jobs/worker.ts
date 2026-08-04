@@ -17,8 +17,20 @@ export type JobStoreForWorker = {
     retryAt: Date | null;
     errorCode: string;
     errorDetailSanitized?: string | null;
-  }): Promise<unknown>;
+  }): Promise<SummaryJobRecord>;
 };
+
+export type JobRunResult =
+  | {
+      attempted: false;
+      reason: 'already_running' | 'empty';
+    }
+  | {
+      attempted: true;
+      jobId: string;
+      inboundMessageId: string;
+      outcome: 'completed' | 'retryable_failed' | 'terminal_failed';
+    };
 
 export type JobWorkerDependencies = {
   jobStore: JobStoreForWorker;
@@ -31,9 +43,11 @@ export type JobWorkerDependencies = {
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
   onError?: (error: unknown) => void;
+  onTerminalJobFailed?: (job: SummaryJobRecord) => Promise<void> | void;
 };
 
 export type JobWorker = {
+  runOnceDetailed(): Promise<JobRunResult>;
   runOnce(): Promise<boolean>;
   start(): void;
   stop(): void;
@@ -87,9 +101,12 @@ export function createJobWorker(dependencies: JobWorkerDependencies): JobWorker 
   let timer: NodeJS.Timeout | null = null;
   let running = false;
 
-  async function runOnce(): Promise<boolean> {
+  async function runOnceDetailed(): Promise<JobRunResult> {
     if (running) {
-      return false;
+      return {
+        attempted: false,
+        reason: 'already_running'
+      };
     }
 
     running = true;
@@ -102,7 +119,10 @@ export function createJobWorker(dependencies: JobWorkerDependencies): JobWorker 
         staleProcessingBefore
       );
       if (!job) {
-        return false;
+        return {
+          attempted: false,
+          reason: 'empty'
+        };
       }
 
       try {
@@ -110,8 +130,14 @@ export function createJobWorker(dependencies: JobWorkerDependencies): JobWorker 
           dependencies.processJob(job.id),
           dependencies.activeJobTimeoutMs ?? dependencies.processingJobTimeoutMs
         );
+        return {
+          attempted: true,
+          jobId: job.id,
+          inboundMessageId: job.inboundMessageId,
+          outcome: 'completed'
+        };
       } catch (error) {
-        await dependencies.jobStore.markFailed({
+        const failedJob = await dependencies.jobStore.markFailed({
           jobId: job.id,
           inboundMessageId: job.inboundMessageId,
           failedAt: now(),
@@ -119,15 +145,31 @@ export function createJobWorker(dependencies: JobWorkerDependencies): JobWorker 
           errorCode: 'processing_failed',
           errorDetailSanitized: sanitizeError(error)
         });
-      }
 
-      return true;
+        if (failedJob.status === 'terminal_failed') {
+          await dependencies.onTerminalJobFailed?.(failedJob);
+        }
+
+        return {
+          attempted: true,
+          jobId: job.id,
+          inboundMessageId: job.inboundMessageId,
+          outcome:
+            failedJob.status === 'terminal_failed' ? 'terminal_failed' : 'retryable_failed'
+        };
+      }
     } finally {
       running = false;
     }
   }
 
+  async function runOnce(): Promise<boolean> {
+    const result = await runOnceDetailed();
+    return result.attempted;
+  }
+
   return {
+    runOnceDetailed,
     runOnce,
 
     start() {

@@ -11,17 +11,26 @@ import type { WhatsAppWebhookHandlers } from '../routes/whatsapp-webhook.js';
 import type { WhatsAppTextSender } from '../services/whatsapp-client.js';
 import { createCommandRouter } from '../commands/command-router.js';
 import { createAudioIntakeHandler } from '../jobs/audio-intake.js';
+import type { JobDrainTrigger } from '../services/job-trigger.js';
+
+type HandlerLogger = {
+  error: (...args: unknown[]) => void;
+};
 
 export type CreateWhatsAppCommandHandlerOptions = {
   config: AppConfig;
   db: DbPool;
   whatsapp: WhatsAppTextSender;
+  jobDrainTrigger?: JobDrainTrigger;
+  logger?: HandlerLogger;
 };
 
 export function createWhatsAppCommandHandler({
   config,
   db,
-  whatsapp
+  whatsapp,
+  jobDrainTrigger,
+  logger
 }: CreateWhatsAppCommandHandlerOptions): WhatsAppWebhookHandlers {
   const users = createUsersRepository(db);
   const pendingSenderLabels = createPendingSenderLabelsRepository(db);
@@ -47,7 +56,11 @@ export function createWhatsAppCommandHandler({
     users,
     inboundMessages,
     summaryJobs,
-    outboundMessages
+    outboundMessages,
+    jobDrainTrigger,
+    onJobDrainTriggerError(error, input) {
+      logger?.error({ error, ...input }, 'Failed to schedule audio job drain');
+    }
   });
 
   return {

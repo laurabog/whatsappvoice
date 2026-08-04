@@ -2,11 +2,16 @@ import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createDbPool } from './db/client.js';
 import { createAudioWorkerRuntime } from './jobs/audio-worker-runtime.js';
+import { createLogger } from './observability/logger.js';
+import { createJobDrainTrigger } from './services/job-trigger.js';
 import { MetaWhatsAppClient } from './services/meta-whatsapp-client.js';
 import { createWhatsAppCommandHandler } from './webhooks/whatsapp-command-handler.js';
 
 const config = loadConfig();
 const db = config.DATABASE_URL ? createDbPool(config) : null;
+const logger = createLogger(config.NODE_ENV);
+const audioWorkerRuntime = db ? createAudioWorkerRuntime({ config, db, logger }) : null;
+const jobDrainTrigger = createJobDrainTrigger({ config });
 
 const app = buildApp({
   config,
@@ -14,11 +19,13 @@ const app = buildApp({
     ? createWhatsAppCommandHandler({
         config,
         db,
-        whatsapp: new MetaWhatsAppClient(config)
+        whatsapp: new MetaWhatsAppClient(config),
+        jobDrainTrigger,
+        logger
       })
-    : undefined
+    : undefined,
+  internalJobHandlers: audioWorkerRuntime ?? undefined
 });
-const audioWorkerRuntime = db ? createAudioWorkerRuntime({ config, db, logger: app.log }) : null;
 
 app.addHook('onClose', async () => {
   audioWorkerRuntime?.stop();

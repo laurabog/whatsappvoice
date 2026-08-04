@@ -8,6 +8,7 @@ import {
   sendWhatsAppTextOnce,
   type OutboundMessagesForSending
 } from '../services/idempotent-whatsapp-sender.js';
+import type { JobDrainTrigger } from '../services/job-trigger.js';
 
 export const processingAckMessage = 'Got it — working a little voice-note magic ✨';
 
@@ -34,7 +35,13 @@ export type AudioIntakeResult =
     };
 
 export type AudioIntakeDependencies = {
-  config: Pick<AppConfig, 'MAX_DAILY_MESSAGES_PER_USER' | 'AUDIO_LABEL_GRACE_PERIOD_MS'>;
+  config: Pick<
+    AppConfig,
+    | 'MAX_DAILY_MESSAGES_PER_USER'
+    | 'AUDIO_LABEL_GRACE_PERIOD_MS'
+    | 'QSTASH_DRAIN_DELAY_SECONDS'
+    | 'QSTASH_DRAIN_MAX_JOBS'
+  >;
   whatsapp: WhatsAppTextSender;
   users: {
     upsertFromWhatsApp(input: {
@@ -68,6 +75,8 @@ export type AudioIntakeDependencies = {
     ): Promise<SummaryJobRecord>;
   };
   outboundMessages: OutboundMessagesForSending;
+  jobDrainTrigger?: JobDrainTrigger;
+  onJobDrainTriggerError?: (error: unknown, input: { inboundMessageId: string }) => void;
   now?: () => Date;
 };
 
@@ -177,6 +186,18 @@ export function createAudioIntakeHandler(dependencies: AudioIntakeDependencies) 
         contextMessageId: message.whatsappMessageId,
         now
       });
+
+      try {
+        await dependencies.jobDrainTrigger?.scheduleDrain({
+          inboundMessageId: inboundMessage.id,
+          delaySeconds: dependencies.config.QSTASH_DRAIN_DELAY_SECONDS,
+          maxJobs: dependencies.config.QSTASH_DRAIN_MAX_JOBS
+        });
+      } catch (error) {
+        dependencies.onJobDrainTriggerError?.(error, {
+          inboundMessageId: inboundMessage.id
+        });
+      }
 
       return {
         handled: true,

@@ -67,7 +67,7 @@ describe('createJobWorker', () => {
           id: 'inbound-1'
         }
       })),
-      markFailed: vi.fn(async () => ({}))
+      markFailed: vi.fn(async () => makeJob({ status: 'retryable_failed', attemptCount: 1 }))
     };
     const worker = createJobWorker({
       jobStore,
@@ -97,7 +97,7 @@ describe('createJobWorker', () => {
     const jobStore = {
       claimNextQueuedJob: vi.fn(async () => makeJob({ attemptCount: 1 })),
       findJobContext: vi.fn(),
-      markFailed: vi.fn(async () => ({}))
+      markFailed: vi.fn(async () => makeJob({ status: 'retryable_failed', attemptCount: 1 }))
     };
     const worker = createJobWorker({
       jobStore,
@@ -139,5 +139,34 @@ describe('createJobWorker', () => {
     });
 
     await expect(worker.runOnce()).resolves.toBe(false);
+  });
+
+  it('reports terminal failures to the optional callback', async () => {
+    const terminalJob = makeJob({ status: 'terminal_failed', attemptCount: 3 });
+    const onTerminalJobFailed = vi.fn();
+    const jobStore = {
+      claimNextQueuedJob: vi.fn(async () => makeJob({ attemptCount: 3 })),
+      findJobContext: vi.fn(),
+      markFailed: vi.fn(async () => terminalJob)
+    };
+    const worker = createJobWorker({
+      jobStore,
+      workerId: 'worker-1',
+      processJob: vi.fn(async () => {
+        throw new Error('final failure');
+      }),
+      pollIntervalMs: 5000,
+      processingJobTimeoutMs: 15 * 60 * 1000,
+      now: () => now,
+      onTerminalJobFailed
+    });
+
+    await expect(worker.runOnceDetailed()).resolves.toEqual({
+      attempted: true,
+      jobId: 'job-1',
+      inboundMessageId: 'inbound-1',
+      outcome: 'terminal_failed'
+    });
+    expect(onTerminalJobFailed).toHaveBeenCalledWith(terminalJob);
   });
 });

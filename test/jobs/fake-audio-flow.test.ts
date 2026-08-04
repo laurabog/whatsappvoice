@@ -112,7 +112,9 @@ describe('fake audio flow', () => {
     const intake = createAudioIntakeHandler({
       config: {
         MAX_DAILY_MESSAGES_PER_USER: 10,
-        AUDIO_LABEL_GRACE_PERIOD_MS: 4000
+        AUDIO_LABEL_GRACE_PERIOD_MS: 4000,
+        QSTASH_DRAIN_DELAY_SECONDS: 2,
+        QSTASH_DRAIN_MAX_JOBS: 1
       },
       whatsapp,
       users: {

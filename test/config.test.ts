@@ -24,6 +24,11 @@ describe('loadConfig', () => {
     expect(config.ACTIVE_JOB_TIMEOUT_MS).toBe(120000);
     expect(config.PROCESSING_JOB_TIMEOUT_MS).toBe(480000);
     expect(config.RETENTION_CLEANUP_INTERVAL_MS).toBe(3600000);
+    expect(config.RUN_IN_PROCESS_WORKER).toBe(true);
+    expect(config.JOB_TRIGGER_MODE).toBe('disabled');
+    expect(config.QSTASH_DRAIN_DELAY_SECONDS).toBe(2);
+    expect(config.QSTASH_DRAIN_MAX_JOBS).toBe(1);
+    expect(config.QSTASH_TIMEOUT_SECONDS).toBe(120);
     expect(config.AUDIO_DURATION_PROBE).toBe('disabled');
   });
 
@@ -37,6 +42,11 @@ describe('loadConfig', () => {
     expect(config.MAX_DAILY_MESSAGES_PER_USER).toBe(7);
   });
 
+  it('coerces boolean environment values', () => {
+    expect(loadConfig({ RUN_IN_PROCESS_WORKER: 'false' }).RUN_IN_PROCESS_WORKER).toBe(false);
+    expect(loadConfig({ RUN_IN_PROCESS_WORKER: 'true' }).RUN_IN_PROCESS_WORKER).toBe(true);
+  });
+
   it('treats blank optional secrets as missing', () => {
     const config = loadConfig({
       DATABASE_URL: '',
@@ -45,6 +55,9 @@ describe('loadConfig', () => {
       WHATSAPP_APP_SECRET: '',
       WHATSAPP_PHONE_NUMBER_ID: '',
       OPENAI_API_KEY: '',
+      INTERNAL_JOB_TOKEN: '',
+      PUBLIC_APP_URL: '',
+      QSTASH_TOKEN: '',
       SENTRY_DSN: ''
     });
 
@@ -54,6 +67,9 @@ describe('loadConfig', () => {
     expect(config.WHATSAPP_APP_SECRET).toBeUndefined();
     expect(config.WHATSAPP_PHONE_NUMBER_ID).toBeUndefined();
     expect(config.OPENAI_API_KEY).toBeUndefined();
+    expect(config.INTERNAL_JOB_TOKEN).toBeUndefined();
+    expect(config.PUBLIC_APP_URL).toBeUndefined();
+    expect(config.QSTASH_TOKEN).toBeUndefined();
     expect(config.SENTRY_DSN).toBeUndefined();
   });
 

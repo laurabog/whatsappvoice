@@ -6,6 +6,23 @@ const optionalNonEmptyString = z.preprocess(
   z.string().min(1).optional()
 );
 
+const booleanFromEnv = z.preprocess((value) => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes') {
+    return true;
+  }
+
+  if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+    return false;
+  }
+
+  return value;
+}, z.boolean());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -34,6 +51,14 @@ const envSchema = z.object({
   ACTIVE_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   PROCESSING_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(8 * 60 * 1000),
   RETENTION_CLEANUP_INTERVAL_MS: z.coerce.number().int().positive().default(60 * 60 * 1000),
+  RUN_IN_PROCESS_WORKER: booleanFromEnv.default(true),
+  INTERNAL_JOB_TOKEN: optionalNonEmptyString,
+  JOB_TRIGGER_MODE: z.enum(['disabled', 'qstash']).default('disabled'),
+  PUBLIC_APP_URL: optionalNonEmptyString,
+  QSTASH_TOKEN: optionalNonEmptyString,
+  QSTASH_DRAIN_DELAY_SECONDS: z.coerce.number().int().nonnegative().default(2),
+  QSTASH_DRAIN_MAX_JOBS: z.coerce.number().int().positive().max(3).default(1),
+  QSTASH_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(120),
   AUDIO_DURATION_PROBE: z.enum(['disabled', 'ffprobe']).default('disabled'),
   TEMP_AUDIO_DIR: z.string().min(1).default('/tmp/whatsapp-summary-audio'),
   SENTRY_DSN: optionalNonEmptyString
