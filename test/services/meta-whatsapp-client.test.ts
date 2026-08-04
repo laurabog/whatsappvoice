@@ -39,7 +39,7 @@ describe('MetaWhatsAppClient', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'https://graph.facebook.com/v23.0/phone-number-id/messages',
-      {
+      expect.objectContaining({
         method: 'POST',
         headers: {
           authorization: 'Bearer access-token',
@@ -57,9 +57,40 @@ describe('MetaWhatsAppClient', () => {
             preview_url: false,
             body: 'Hello'
           }
-        })
-      }
+        }),
+        signal: expect.any(AbortSignal)
+      })
     );
+  });
+
+  it('retries transient socket resets when sending text messages', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error('socket reset'), { code: 'ECONNRESET' }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ messages: [{ id: 'wamid.retry-ok' }] }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json'
+          }
+        })
+      );
+    globalThis.fetch = fetchMock;
+
+    const client = new MetaWhatsAppClient({
+      WHATSAPP_ACCESS_TOKEN: 'access-token',
+      WHATSAPP_GRAPH_API_VERSION: 'v23.0',
+      WHATSAPP_PHONE_NUMBER_ID: 'phone-number-id'
+    });
+
+    await expect(
+      client.sendText({
+        to: '15551234567',
+        body: 'Hello'
+      })
+    ).resolves.toEqual({ whatsappMessageId: 'wamid.retry-ok' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('requires send credentials', () => {
@@ -143,11 +174,12 @@ describe('MetaWhatsAppClient', () => {
     expect(url.toString()).toBe(
       'https://graph.facebook.com/v23.0/media-123?phone_number_id=phone-number-id'
     );
-    expect(init).toEqual({
+    expect(init).toEqual(expect.objectContaining({
       headers: {
         authorization: 'Bearer access-token'
-      }
-    });
+      },
+      signal: expect.any(AbortSignal)
+    }));
   });
 
   it('downloads WhatsApp media URLs to a local file with bearer authentication', async () => {
@@ -181,11 +213,12 @@ describe('MetaWhatsAppClient', () => {
         mimeType: 'audio/ogg; codecs=opus'
       });
 
-      expect(fetchMock).toHaveBeenCalledWith('https://lookaside.whatsapp.example/media', {
+      expect(fetchMock).toHaveBeenCalledWith('https://lookaside.whatsapp.example/media', expect.objectContaining({
         headers: {
           authorization: 'Bearer access-token'
-        }
-      });
+        },
+        signal: expect.any(AbortSignal)
+      }));
       await expect(readFile(destinationPath, 'utf8')).resolves.toBe('audio-bytes');
     } finally {
       await rm(dir, { recursive: true, force: true });
