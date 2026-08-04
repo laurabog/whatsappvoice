@@ -45,6 +45,10 @@ describe('OpenAITranscriber', () => {
         model: 'gpt-4o-mini-transcribe',
         language: 'en',
         response_format: 'json'
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        timeout: 60_000
       })
     );
   });

@@ -47,6 +47,7 @@ export class FakeTranscriber implements Transcriber {
 export class OpenAITranscriber implements Transcriber {
   private readonly client: OpenAI;
   private readonly model: string;
+  private readonly requestTimeoutMs: number;
 
   constructor(config: OpenAITranscriberConfig, client?: OpenAI) {
     if (!client && !config.OPENAI_API_KEY) {
@@ -61,6 +62,7 @@ export class OpenAITranscriber implements Transcriber {
         maxRetries: 0
       });
     this.model = config.OPENAI_TRANSCRIPTION_MODEL;
+    this.requestTimeoutMs = config.OPENAI_REQUEST_TIMEOUT_MS;
   }
 
   async transcribe(input: TranscriptionInput): Promise<TranscriptionResult> {
@@ -71,12 +73,23 @@ export class OpenAITranscriber implements Transcriber {
     const audioPath = input.audioPath;
     const startedAt = Date.now();
     const response = await retryOpenAIRequest(() =>
-      this.client.audio.transcriptions.create({
-        file: createReadStream(audioPath),
-        model: this.model,
-        language: input.language,
-        response_format: 'json'
-      })
+      withHardTimeout(
+        (signal) =>
+          this.client.audio.transcriptions.create(
+            {
+              file: createReadStream(audioPath),
+              model: this.model,
+              language: input.language,
+              response_format: 'json'
+            },
+            {
+              signal,
+              timeout: this.requestTimeoutMs
+            }
+          ),
+        this.requestTimeoutMs,
+        'OpenAI transcription'
+      )
     );
     const text = response.text.trim();
 
@@ -91,5 +104,36 @@ export class OpenAITranscriber implements Transcriber {
       latencyMs: Date.now() - startedAt,
       characterCount: text.length
     };
+  }
+}
+
+function timeoutError(label: string, timeoutMs: number): Error {
+  const error = new Error(`${label} timed out after ${timeoutMs}ms`);
+  error.name = 'TimeoutError';
+  return error;
+}
+
+async function withHardTimeout<T>(
+  request: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  const controller = new AbortController();
+  let timeout: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(timeoutError(label, timeoutMs));
+    }, timeoutMs);
+  });
+  const requestPromise = request(controller.signal);
+  requestPromise.catch(() => undefined);
+
+  try {
+    return await Promise.race([requestPromise, timeoutPromise]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
 }
