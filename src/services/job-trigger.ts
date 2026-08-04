@@ -45,7 +45,7 @@ function trimTrailingSlash(value: string): string {
 }
 
 function qstashPublishUrl(qstashUrl: string, destinationUrl: string): string {
-  return `${trimTrailingSlash(qstashUrl)}/v2/publish/${encodeURIComponent(destinationUrl)}`;
+  return `${trimTrailingSlash(qstashUrl)}/v2/publish/${destinationUrl}`;
 }
 
 export function createJobDrainTrigger({

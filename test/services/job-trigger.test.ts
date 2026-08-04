@@ -85,7 +85,7 @@ describe('createJobDrainTrigger', () => {
     });
 
     expect(fetchFn).toHaveBeenCalledWith(
-      'https://qstash-eu-central-1.upstash.io/v2/publish/https%3A%2F%2Fvoiceicorn.example%2Finternal%2Fjobs%2Fdrain',
+      'https://qstash-eu-central-1.upstash.io/v2/publish/https://voiceicorn.example/internal/jobs/drain',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
