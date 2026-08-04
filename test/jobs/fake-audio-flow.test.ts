@@ -187,7 +187,8 @@ describe('fake audio flow', () => {
     const processor = createAudioMessageProcessor({
       config: {
         SUMMARY_RETENTION_DAYS: 30,
-        TRANSCRIPT_RETENTION_DAYS: 30
+        TRANSCRIPT_RETENTION_DAYS: 30,
+        SLOW_JOB_PROGRESS_MS: 30_000
       },
       jobStore: {
         findJobContext: vi.fn(async (jobId): Promise<AudioJobContext | null> => {

@@ -1,6 +1,10 @@
 const OPENAI_ATTEMPTS = 3;
 const OPENAI_RETRY_DELAYS_MS = [250, 750];
 
+export type RetryOpenAIRequestOptions = {
+  maxAttempts?: number;
+};
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -71,10 +75,14 @@ export function isRetryableOpenAIError(error: unknown): boolean {
   );
 }
 
-export async function retryOpenAIRequest<T>(request: () => Promise<T>): Promise<T> {
+export async function retryOpenAIRequest<T>(
+  request: () => Promise<T>,
+  options: RetryOpenAIRequestOptions = {}
+): Promise<T> {
   let lastError: unknown;
+  const maxAttempts = options.maxAttempts ?? OPENAI_ATTEMPTS;
 
-  for (let attempt = 0; attempt < OPENAI_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       return await request();
     } catch (error) {

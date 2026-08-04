@@ -51,7 +51,10 @@ export type AudioJobProgress = {
 };
 
 export type ProcessAudioMessageDependencies = {
-  config: Pick<AppConfig, 'SUMMARY_RETENTION_DAYS' | 'TRANSCRIPT_RETENTION_DAYS'>;
+  config: Pick<
+    AppConfig,
+    'SUMMARY_RETENTION_DAYS' | 'TRANSCRIPT_RETENTION_DAYS' | 'SLOW_JOB_PROGRESS_MS'
+  >;
   jobStore: {
     findJobContext(jobId: string): Promise<AudioJobContext | null>;
     markCompleted(input: {
@@ -89,6 +92,8 @@ export type ProcessAudioMessageDependencies = {
   audioSource?: AudioSource;
   onProgress?: (input: AudioJobProgress) => void;
   now?: () => Date;
+  setTimeoutFn?: typeof setTimeout;
+  clearTimeoutFn?: typeof clearTimeout;
 };
 
 function addDays(date: Date, days: number): Date {
@@ -98,6 +103,9 @@ function addDays(date: Date, days: number): Date {
 function elapsedMs(startedAtMs: number): number {
   return Math.max(0, Date.now() - startedAtMs);
 }
+
+const slowJobProgressMessage =
+  'Still working - this voice note is taking a little longer than usual ✨';
 
 function isSummaryPoint(value: unknown): value is SummaryPoint {
   if (!value || typeof value !== 'object') {
@@ -145,6 +153,8 @@ function summaryOutputFromRecord(record: SummaryRecord): SummaryOutput {
 
 export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDependencies) {
   const now = dependencies.now ?? (() => new Date());
+  const setTimeoutFn = dependencies.setTimeoutFn ?? setTimeout;
+  const clearTimeoutFn = dependencies.clearTimeoutFn ?? clearTimeout;
 
   return {
     async processAudioMessage(jobId: string): Promise<ProcessAudioMessageResult> {
@@ -177,6 +187,19 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
       let downloadLatencyMs: number | null = null;
       let transcriptionLatencyMs = 0;
       let summaryLatencyMs = 0;
+      let progressTimer: NodeJS.Timeout | null = setTimeoutFn(() => {
+        void sendWhatsAppTextOnce({
+          outboundMessages: dependencies.outboundMessages,
+          whatsapp: dependencies.whatsapp,
+          inboundMessageId: context.inboundMessage.id,
+          userId: context.user.id,
+          replyKind: 'progress',
+          to: context.user.whatsappUserId,
+          body: slowJobProgressMessage,
+          contextMessageId: context.inboundMessage.whatsappMessageId,
+          now
+        }).catch(() => undefined);
+      }, dependencies.config.SLOW_JOB_PROGRESS_MS);
 
       try {
         const downloadStartedAtMs = Date.now();
@@ -305,6 +328,10 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
         });
 
         for (const [index, body] of replyChunks.entries()) {
+          if (progressTimer) {
+            clearTimeoutFn(progressTimer);
+            progressTimer = null;
+          }
           dependencies.onProgress?.({
             jobId,
             step: 'reply',
@@ -352,6 +379,9 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
           replyCount: replyChunks.length
         };
       } finally {
+        if (progressTimer) {
+          clearTimeoutFn(progressTimer);
+        }
         await preparedAudio?.cleanup().catch(() => undefined);
       }
     }

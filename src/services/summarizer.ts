@@ -52,7 +52,10 @@ export type SummaryModelOutput = z.infer<typeof summaryModelOutputSchema>;
 
 type OpenAISummarizerConfig = Pick<
   AppConfig,
-  'OPENAI_API_KEY' | 'OPENAI_SUMMARY_MODEL' | 'OPENAI_REQUEST_TIMEOUT_MS'
+  | 'OPENAI_API_KEY'
+  | 'OPENAI_SUMMARY_MODEL'
+  | 'OPENAI_REQUEST_TIMEOUT_MS'
+  | 'OPENAI_SUMMARY_TIMEOUT_MS'
 >;
 
 const summarySystemPrompt = [
@@ -132,6 +135,7 @@ export class FakeSummarizer implements Summarizer {
 export class OpenAISummarizer implements Summarizer {
   private readonly client: OpenAI;
   private readonly model: string;
+  private readonly summaryTimeoutMs: number;
 
   constructor(config: OpenAISummarizerConfig, client?: OpenAI) {
     if (!client && !config.OPENAI_API_KEY) {
@@ -146,6 +150,7 @@ export class OpenAISummarizer implements Summarizer {
         maxRetries: 0
       });
     this.model = config.OPENAI_SUMMARY_MODEL;
+    this.summaryTimeoutMs = config.OPENAI_SUMMARY_TIMEOUT_MS;
   }
 
   async summarize(input: SummarizerInput): Promise<SummaryOutput> {
@@ -153,28 +158,43 @@ export class OpenAISummarizer implements Summarizer {
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const response = await retryOpenAIRequest(() =>
-          this.client.responses.parse({
-            model: this.model,
-            input: [
-              {
-                role: 'system',
-                content: summarySystemPrompt
-              },
-              {
-                role: 'user',
-                content: [
-                  'Summarize this transcript.',
-                  '',
-                  'Transcript:',
-                  input.transcript
-                ].join('\n')
-              }
-            ],
-            text: {
-              format: zodTextFormat(summaryModelOutputSchema, 'voice_note_summary')
-            }
-          })
+        const response = await retryOpenAIRequest(
+          () =>
+            withHardTimeout(
+              (signal) =>
+                this.client.responses.parse(
+                  {
+                    model: this.model,
+                    input: [
+                      {
+                        role: 'system',
+                        content: summarySystemPrompt
+                      },
+                      {
+                        role: 'user',
+                        content: [
+                          'Summarize this transcript.',
+                          '',
+                          'Transcript:',
+                          input.transcript
+                        ].join('\n')
+                      }
+                    ],
+                    text: {
+                      format: zodTextFormat(summaryModelOutputSchema, 'voice_note_summary')
+                    }
+                  },
+                  {
+                    signal,
+                    timeout: this.summaryTimeoutMs
+                  }
+                ),
+              this.summaryTimeoutMs,
+              'OpenAI summary'
+            ),
+          {
+            maxAttempts: 2
+          }
         );
 
         if (!response.output_parsed) {
@@ -194,5 +214,36 @@ export class OpenAISummarizer implements Summarizer {
     throw new Error('OpenAI summary output did not match the expected schema', {
       cause: lastError
     });
+  }
+}
+
+function timeoutError(label: string, timeoutMs: number): Error {
+  const error = new Error(`${label} timed out after ${timeoutMs}ms`);
+  error.name = 'TimeoutError';
+  return error;
+}
+
+async function withHardTimeout<T>(
+  request: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  const controller = new AbortController();
+  let timeout: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(timeoutError(label, timeoutMs));
+    }, timeoutMs);
+  });
+  const requestPromise = request(controller.signal);
+  requestPromise.catch(() => undefined);
+
+  try {
+    return await Promise.race([requestPromise, timeoutPromise]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
 }

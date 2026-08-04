@@ -1,9 +1,13 @@
 import OpenAI from 'openai';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   OpenAISummarizer,
   parseSummaryModelOutput
 } from '../../src/services/summarizer.js';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const validModelOutput = {
   one_sentence_summary: 'Alex asks you to review the plan.',
@@ -86,7 +90,8 @@ describe('OpenAISummarizer', () => {
       {
         OPENAI_API_KEY: undefined,
         OPENAI_SUMMARY_MODEL: 'gpt-4o-mini',
-        OPENAI_REQUEST_TIMEOUT_MS: 60_000
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000,
+        OPENAI_SUMMARY_TIMEOUT_MS: 45_000
       },
       client
     );
@@ -118,6 +123,10 @@ describe('OpenAISummarizer', () => {
             type: 'json_schema'
           })
         }
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        timeout: 45_000
       })
     );
   });
@@ -134,7 +143,8 @@ describe('OpenAISummarizer', () => {
       {
         OPENAI_API_KEY: undefined,
         OPENAI_SUMMARY_MODEL: 'gpt-4o-mini',
-        OPENAI_REQUEST_TIMEOUT_MS: 60_000
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000,
+        OPENAI_SUMMARY_TIMEOUT_MS: 45_000
       },
       client
     );
@@ -164,7 +174,8 @@ describe('OpenAISummarizer', () => {
       {
         OPENAI_API_KEY: undefined,
         OPENAI_SUMMARY_MODEL: 'gpt-4o-mini',
-        OPENAI_REQUEST_TIMEOUT_MS: 60_000
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000,
+        OPENAI_SUMMARY_TIMEOUT_MS: 45_000
       },
       client
     );
@@ -195,7 +206,8 @@ describe('OpenAISummarizer', () => {
       {
         OPENAI_API_KEY: undefined,
         OPENAI_SUMMARY_MODEL: 'gpt-4o-mini',
-        OPENAI_REQUEST_TIMEOUT_MS: 60_000
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000,
+        OPENAI_SUMMARY_TIMEOUT_MS: 45_000
       },
       client
     );
@@ -206,7 +218,31 @@ describe('OpenAISummarizer', () => {
       })
     ).rejects.toBe(networkError);
 
-    expect(client.responses.parse).toHaveBeenCalledTimes(3);
+    expect(client.responses.parse).toHaveBeenCalledTimes(2);
+  });
+
+  it('hard-times out slow summary requests', async () => {
+    const client = {
+      responses: {
+        parse: vi.fn(() => new Promise(() => undefined))
+      }
+    } as unknown as OpenAI;
+    const summarizer = new OpenAISummarizer(
+      {
+        OPENAI_API_KEY: undefined,
+        OPENAI_SUMMARY_MODEL: 'gpt-4o-mini',
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000,
+        OPENAI_SUMMARY_TIMEOUT_MS: 1
+      },
+      client
+    );
+
+    await expect(
+      summarizer.summarize({
+        transcript: 'A transcript.'
+      })
+    ).rejects.toThrow('OpenAI summary timed out after 1ms');
+    expect(client.responses.parse).toHaveBeenCalledTimes(2);
   });
 
   it('requires an API key when no client is injected', () => {
@@ -215,7 +251,8 @@ describe('OpenAISummarizer', () => {
         new OpenAISummarizer({
           OPENAI_API_KEY: undefined,
           OPENAI_SUMMARY_MODEL: 'gpt-4o-mini',
-          OPENAI_REQUEST_TIMEOUT_MS: 60_000
+          OPENAI_REQUEST_TIMEOUT_MS: 60_000,
+          OPENAI_SUMMARY_TIMEOUT_MS: 45_000
         })
     ).toThrow('OPENAI_API_KEY is required for OpenAI summarization');
   });

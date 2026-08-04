@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PendingSenderLabelRecord } from '../../src/db/repositories/pending-sender-labels.js';
 import type { InsertSummaryInput, SummaryRecord } from '../../src/db/repositories/summaries.js';
 import type { InsertTranscriptInput, TranscriptRecord } from '../../src/db/repositories/transcripts.js';
@@ -8,12 +8,17 @@ import {
   type ProcessAudioMessageDependencies
 } from '../../src/jobs/process-audio-message.js';
 import type { AudioSource } from '../../src/services/media-downloader.js';
+import type { SummaryOutput } from '../../src/services/reply-formatter.js';
 import { FakeSummarizer, type Summarizer } from '../../src/services/summarizer.js';
 import { FakeTranscriber, type Transcriber } from '../../src/services/transcriber.js';
 import type { SendTextInput } from '../../src/services/whatsapp-client.js';
 import { createInMemoryOutboundMessages } from '../helpers/in-memory-outbound.js';
 
 const now = new Date('2026-08-03T12:00:00.000Z');
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function makeContext(): AudioJobContext {
   return {
@@ -121,7 +126,8 @@ function makeDependencies(): {
   const dependencies: ProcessAudioMessageDependencies = {
     config: {
       SUMMARY_RETENTION_DAYS: 30,
-      TRANSCRIPT_RETENTION_DAYS: 30
+      TRANSCRIPT_RETENTION_DAYS: 30,
+      SLOW_JOB_PROGRESS_MS: 30_000
     },
     jobStore: {
       findJobContext: vi.fn(async () => makeContext()),
@@ -316,5 +322,43 @@ describe('createAudioMessageProcessor', () => {
     await processor.processAudioMessage('job-1');
 
     expect(sentMessages).toHaveLength(2);
+  });
+
+  it('sends one progress message when processing takes longer than the slow-job threshold', async () => {
+    vi.useFakeTimers();
+    const { dependencies, sentMessages } = makeDependencies();
+    dependencies.config.SLOW_JOB_PROGRESS_MS = 1000;
+    const fakeSummary = await new FakeSummarizer().summarize({
+      transcript: 'Please reply when you can.'
+    });
+    dependencies.summarizer = {
+      summarize: vi.fn(
+        (): Promise<SummaryOutput> =>
+          new Promise((resolve) => {
+            setTimeout(() => {
+              resolve(fakeSummary);
+            }, 2000);
+          })
+      )
+    };
+    const processor = createAudioMessageProcessor(dependencies);
+    const run = processor.processAudioMessage('job-1');
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]?.body).toBe(
+      'Still working - this voice note is taking a little longer than usual ✨'
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(run).resolves.toMatchObject({
+      processed: true,
+      replyCount: 2
+    });
+
+    expect(sentMessages).toHaveLength(3);
+    expect(sentMessages[1]?.body).toContain('🎧 Voice note from Alex');
+    expect(sentMessages[2]?.body).toContain('💬 Copy-paste reply');
   });
 });

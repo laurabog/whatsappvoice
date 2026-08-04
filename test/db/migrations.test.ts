@@ -24,3 +24,12 @@ describe('targeted sender labels migration', () => {
     expect(sql).toContain('references inbound_messages(id)');
   });
 });
+
+describe('progress reply kind migration', () => {
+  it('allows idempotent slow-job progress messages', async () => {
+    const sql = await readFile('migrations/0004_progress_reply_kind.sql', 'utf8');
+
+    expect(sql).toContain('outbound_messages_reply_kind_check');
+    expect(sql).toContain("'progress'");
+  });
+});

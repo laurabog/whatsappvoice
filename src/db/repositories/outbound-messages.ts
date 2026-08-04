@@ -3,6 +3,7 @@ import type { DbClient } from '../client.js';
 
 export type OutboundReplyKind =
   | 'processing_ack'
+  | 'progress'
   | 'summary'
   | 'transcript'
   | 'failure'
