@@ -31,6 +31,7 @@ const envSchema = z.object({
   RENAME_LATEST_LABEL_WINDOW_HOURS: z.coerce.number().int().positive().default(24),
   AUDIO_LABEL_GRACE_PERIOD_MS: z.coerce.number().int().nonnegative().default(4000),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
+  ACTIVE_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   PROCESSING_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(8 * 60 * 1000),
   RETENTION_CLEANUP_INTERVAL_MS: z.coerce.number().int().positive().default(60 * 60 * 1000),
   AUDIO_DURATION_PROBE: z.enum(['disabled', 'ffprobe']).default('disabled'),

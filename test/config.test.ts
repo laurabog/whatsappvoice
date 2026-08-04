@@ -21,6 +21,7 @@ describe('loadConfig', () => {
     expect(config.RENAME_LATEST_LABEL_WINDOW_HOURS).toBe(24);
     expect(config.AUDIO_LABEL_GRACE_PERIOD_MS).toBe(4000);
     expect(config.WORKER_POLL_INTERVAL_MS).toBe(5000);
+    expect(config.ACTIVE_JOB_TIMEOUT_MS).toBe(120000);
     expect(config.PROCESSING_JOB_TIMEOUT_MS).toBe(480000);
     expect(config.RETENTION_CLEANUP_INTERVAL_MS).toBe(3600000);
     expect(config.AUDIO_DURATION_PROBE).toBe('disabled');

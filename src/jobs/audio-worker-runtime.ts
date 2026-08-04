@@ -126,6 +126,7 @@ export function createAudioWorkerRuntime({
     workerId: `worker-${randomUUID()}`,
     processJob: processAudioJob,
     pollIntervalMs: config.WORKER_POLL_INTERVAL_MS,
+    activeJobTimeoutMs: config.ACTIVE_JOB_TIMEOUT_MS,
     processingJobTimeoutMs: config.PROCESSING_JOB_TIMEOUT_MS,
     onError: reportAsyncError(logger, 'Audio worker poll failed')
   });

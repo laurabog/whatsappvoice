@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SummaryJobRecord } from '../../src/db/repositories/summary-jobs.js';
 import { createJobWorker } from '../../src/jobs/worker.js';
 
 const now = new Date('2026-08-03T12:00:00.000Z');
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function makeJob(overrides: Partial<SummaryJobRecord> = {}): SummaryJobRecord {
   return {
@@ -85,6 +89,38 @@ describe('createJobWorker', () => {
       retryAt: new Date('2026-08-03T12:00:30.000Z'),
       errorCode: 'processing_failed',
       errorDetailSanitized: 'fake failure'
+    });
+  });
+
+  it('marks stuck active jobs retryable after the active job timeout', async () => {
+    vi.useFakeTimers();
+    const jobStore = {
+      claimNextQueuedJob: vi.fn(async () => makeJob({ attemptCount: 1 })),
+      findJobContext: vi.fn(),
+      markFailed: vi.fn(async () => ({}))
+    };
+    const worker = createJobWorker({
+      jobStore,
+      workerId: 'worker-1',
+      processJob: vi.fn(() => new Promise(() => undefined)),
+      pollIntervalMs: 5000,
+      activeJobTimeoutMs: 10_000,
+      processingJobTimeoutMs: 15 * 60 * 1000,
+      now: () => now
+    });
+    const run = worker.runOnce();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(run).resolves.toBe(true);
+    expect(jobStore.findJobContext).not.toHaveBeenCalled();
+    expect(jobStore.markFailed).toHaveBeenCalledWith({
+      jobId: 'job-1',
+      inboundMessageId: 'inbound-1',
+      failedAt: now,
+      retryAt: new Date('2026-08-03T12:00:30.000Z'),
+      errorCode: 'processing_failed',
+      errorDetailSanitized: 'Audio job processing timed out after 10000ms'
     });
   });
 

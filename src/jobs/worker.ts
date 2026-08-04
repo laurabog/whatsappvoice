@@ -25,6 +25,7 @@ export type JobWorkerDependencies = {
   workerId: string;
   processJob(jobId: string): Promise<unknown>;
   pollIntervalMs: number;
+  activeJobTimeoutMs?: number;
   processingJobTimeoutMs: number;
   now?: () => Date;
   setIntervalFn?: typeof setInterval;
@@ -55,6 +56,30 @@ function sanitizeError(error: unknown): string {
   return 'Unknown processing error';
 }
 
+function timeoutError(timeoutMs: number): Error {
+  const error = new Error(`Audio job processing timed out after ${timeoutMs}ms`);
+  error.name = 'TimeoutError';
+  return error;
+}
+
+async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      reject(timeoutError(timeoutMs));
+    }, timeoutMs);
+  });
+  operation.catch(() => undefined);
+
+  try {
+    return await Promise.race([operation, timeoutPromise]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 export function createJobWorker(dependencies: JobWorkerDependencies): JobWorker {
   const now = dependencies.now ?? (() => new Date());
   const setIntervalFn = dependencies.setIntervalFn ?? setInterval;
@@ -81,16 +106,14 @@ export function createJobWorker(dependencies: JobWorkerDependencies): JobWorker 
       }
 
       try {
-        await dependencies.processJob(job.id);
+        await withTimeout(
+          dependencies.processJob(job.id),
+          dependencies.activeJobTimeoutMs ?? dependencies.processingJobTimeoutMs
+        );
       } catch (error) {
-        const context = await dependencies.jobStore.findJobContext(job.id);
-        if (!context) {
-          throw error;
-        }
-
         await dependencies.jobStore.markFailed({
           jobId: job.id,
-          inboundMessageId: context.inboundMessage.id,
+          inboundMessageId: job.inboundMessageId,
           failedAt: now(),
           retryAt: retryAtForAttempt(now(), job.attemptCount, job.maxAttempts),
           errorCode: 'processing_failed',
