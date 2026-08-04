@@ -24,7 +24,7 @@ export interface Transcriber {
 
 type OpenAITranscriberConfig = Pick<
   AppConfig,
-  'OPENAI_API_KEY' | 'OPENAI_TRANSCRIPTION_MODEL'
+  'OPENAI_API_KEY' | 'OPENAI_TRANSCRIPTION_MODEL' | 'OPENAI_REQUEST_TIMEOUT_MS'
 >;
 
 export class FakeTranscriber implements Transcriber {
@@ -53,7 +53,13 @@ export class OpenAITranscriber implements Transcriber {
       throw new Error('OPENAI_API_KEY is required for OpenAI transcription');
     }
 
-    this.client = client ?? new OpenAI({ apiKey: config.OPENAI_API_KEY });
+    this.client =
+      client ??
+      new OpenAI({
+        apiKey: config.OPENAI_API_KEY,
+        timeout: config.OPENAI_REQUEST_TIMEOUT_MS,
+        maxRetries: 0
+      });
     this.model = config.OPENAI_TRANSCRIPTION_MODEL;
   }
 

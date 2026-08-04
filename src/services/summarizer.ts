@@ -50,7 +50,10 @@ export const summaryModelOutputSchema = z
 
 export type SummaryModelOutput = z.infer<typeof summaryModelOutputSchema>;
 
-type OpenAISummarizerConfig = Pick<AppConfig, 'OPENAI_API_KEY' | 'OPENAI_SUMMARY_MODEL'>;
+type OpenAISummarizerConfig = Pick<
+  AppConfig,
+  'OPENAI_API_KEY' | 'OPENAI_SUMMARY_MODEL' | 'OPENAI_REQUEST_TIMEOUT_MS'
+>;
 
 const summarySystemPrompt = [
   'You summarize English WhatsApp voice-note transcripts for the recipient.',
@@ -135,7 +138,13 @@ export class OpenAISummarizer implements Summarizer {
       throw new Error('OPENAI_API_KEY is required for OpenAI summarization');
     }
 
-    this.client = client ?? new OpenAI({ apiKey: config.OPENAI_API_KEY });
+    this.client =
+      client ??
+      new OpenAI({
+        apiKey: config.OPENAI_API_KEY,
+        timeout: config.OPENAI_REQUEST_TIMEOUT_MS,
+        maxRetries: 0
+      });
     this.model = config.OPENAI_SUMMARY_MODEL;
   }
 

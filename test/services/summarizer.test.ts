@@ -85,7 +85,8 @@ describe('OpenAISummarizer', () => {
     const summarizer = new OpenAISummarizer(
       {
         OPENAI_API_KEY: undefined,
-        OPENAI_SUMMARY_MODEL: 'gpt-4o-mini'
+        OPENAI_SUMMARY_MODEL: 'gpt-4o-mini',
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000
       },
       client
     );
@@ -132,7 +133,8 @@ describe('OpenAISummarizer', () => {
     const summarizer = new OpenAISummarizer(
       {
         OPENAI_API_KEY: undefined,
-        OPENAI_SUMMARY_MODEL: 'gpt-4o-mini'
+        OPENAI_SUMMARY_MODEL: 'gpt-4o-mini',
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000
       },
       client
     );
@@ -161,7 +163,8 @@ describe('OpenAISummarizer', () => {
     const summarizer = new OpenAISummarizer(
       {
         OPENAI_API_KEY: undefined,
-        OPENAI_SUMMARY_MODEL: 'gpt-4o-mini'
+        OPENAI_SUMMARY_MODEL: 'gpt-4o-mini',
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000
       },
       client
     );
@@ -191,7 +194,8 @@ describe('OpenAISummarizer', () => {
     const summarizer = new OpenAISummarizer(
       {
         OPENAI_API_KEY: undefined,
-        OPENAI_SUMMARY_MODEL: 'gpt-4o-mini'
+        OPENAI_SUMMARY_MODEL: 'gpt-4o-mini',
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000
       },
       client
     );
@@ -210,7 +214,8 @@ describe('OpenAISummarizer', () => {
       () =>
         new OpenAISummarizer({
           OPENAI_API_KEY: undefined,
-          OPENAI_SUMMARY_MODEL: 'gpt-4o-mini'
+          OPENAI_SUMMARY_MODEL: 'gpt-4o-mini',
+          OPENAI_REQUEST_TIMEOUT_MS: 60_000
         })
     ).toThrow('OPENAI_API_KEY is required for OpenAI summarization');
   });

@@ -97,7 +97,10 @@ export function createAudioWorkerRuntime({
           mediaClient: whatsapp,
           durationProbe
         })
-      : undefined
+      : undefined,
+    onProgress: (event) => {
+      logger?.info(event, 'Audio job step updated');
+    }
   });
   const processAudioJob = async (jobId: string) => {
     logger?.info({ jobId }, 'Audio job processing started');

@@ -20,7 +20,8 @@ describe('OpenAITranscriber', () => {
     const transcriber = new OpenAITranscriber(
       {
         OPENAI_API_KEY: undefined,
-        OPENAI_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe'
+        OPENAI_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe',
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000
       },
       client
     );
@@ -69,7 +70,8 @@ describe('OpenAITranscriber', () => {
     const transcriber = new OpenAITranscriber(
       {
         OPENAI_API_KEY: undefined,
-        OPENAI_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe'
+        OPENAI_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe',
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000
       },
       client
     );
@@ -92,7 +94,8 @@ describe('OpenAITranscriber', () => {
     const transcriber = new OpenAITranscriber(
       {
         OPENAI_API_KEY: undefined,
-        OPENAI_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe'
+        OPENAI_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe',
+        OPENAI_REQUEST_TIMEOUT_MS: 60_000
       },
       makeClient('Text')
     );
@@ -111,7 +114,8 @@ describe('OpenAITranscriber', () => {
       () =>
         new OpenAITranscriber({
           OPENAI_API_KEY: undefined,
-          OPENAI_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe'
+          OPENAI_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe',
+          OPENAI_REQUEST_TIMEOUT_MS: 60_000
         })
     ).toThrow('OPENAI_API_KEY is required for OpenAI transcription');
   });

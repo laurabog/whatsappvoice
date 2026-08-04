@@ -255,7 +255,7 @@ export function createCommandRouter(dependencies: CommandRouterDependencies) {
           user,
           dependencies.outboundMessages,
           dependencies.whatsapp,
-          'sender_label',
+          'help',
           `Got it. I will label the next voice note as from ${senderLabel.label}.`,
           0,
           now
@@ -273,7 +273,7 @@ export function createCommandRouter(dependencies: CommandRouterDependencies) {
         user,
         dependencies.outboundMessages,
         dependencies.whatsapp,
-        'unsupported_text',
+        'help',
         unsupportedMessage,
         0,
         now

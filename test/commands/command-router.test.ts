@@ -240,7 +240,7 @@ describe('createCommandRouter', () => {
   });
 
   it('stores a pending sender label for the next voice note', async () => {
-    const { dependencies, sentMessages, now } = makeDependencies();
+    const { dependencies, sentMessages, outboundMessages, now } = makeDependencies();
     const router = createCommandRouter(dependencies);
 
     await expect(router.handleMessage(makeTextMessage('From Alex'))).resolves.toEqual({
@@ -255,6 +255,7 @@ describe('createCommandRouter', () => {
       expiresAt: new Date(now.getTime() + 30 * 60 * 1000)
     });
     expect(sentMessages[0]?.body).toBe('Got it. I will label the next voice note as from Alex.');
+    expect([...outboundMessages.records.values()][0]?.replyKind).toBe('help');
   });
 
   it('does not duplicate sender-label side effects or replies for duplicate text webhooks', async () => {
@@ -298,7 +299,7 @@ describe('createCommandRouter', () => {
   });
 
   it('replies helpfully to unsupported text', async () => {
-    const { dependencies, sentMessages } = makeDependencies();
+    const { dependencies, sentMessages, outboundMessages } = makeDependencies();
     const router = createCommandRouter(dependencies);
 
     await expect(router.handleMessage(makeTextMessage('what can you do?'))).resolves.toEqual({
@@ -307,5 +308,6 @@ describe('createCommandRouter', () => {
     });
 
     expect(sentMessages[0]?.body).toBe(unsupportedMessage);
+    expect([...outboundMessages.records.values()][0]?.replyKind).toBe('help');
   });
 });

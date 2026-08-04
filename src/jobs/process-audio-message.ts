@@ -58,6 +58,12 @@ export type ProcessAudioMessageDependencies = {
   transcriber: Transcriber;
   summarizer: Summarizer;
   audioSource?: AudioSource;
+  onProgress?: (input: {
+    jobId: string;
+    step: 'media' | 'transcription' | 'summary' | 'reply';
+    status: 'started' | 'completed';
+    durationMs?: number | null;
+  }) => void;
   now?: () => Date;
 };
 
@@ -135,6 +141,11 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
 
       try {
         const downloadStartedAtMs = Date.now();
+        dependencies.onProgress?.({
+          jobId,
+          step: 'media',
+          status: 'started'
+        });
         preparedAudio = dependencies.audioSource
           ? await dependencies.audioSource.prepareAudio({
               mediaId: context.inboundMessage.mediaId,
@@ -142,8 +153,19 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
             })
           : null;
         downloadLatencyMs = dependencies.audioSource ? elapsedMs(downloadStartedAtMs) : null;
+        dependencies.onProgress?.({
+          jobId,
+          step: 'media',
+          status: 'completed',
+          durationMs: downloadLatencyMs
+        });
 
         const transcriptionStartedAtMs = Date.now();
+        dependencies.onProgress?.({
+          jobId,
+          step: 'transcription',
+          status: 'started'
+        });
         const transcription = await dependencies.transcriber.transcribe({
           mediaId: context.inboundMessage.mediaId,
           audioPath: preparedAudio?.audioPath,
@@ -151,12 +173,29 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
           language: 'en'
         });
         transcriptionLatencyMs = elapsedMs(transcriptionStartedAtMs);
+        dependencies.onProgress?.({
+          jobId,
+          step: 'transcription',
+          status: 'completed',
+          durationMs: transcriptionLatencyMs
+        });
 
         const summaryStartedAtMs = Date.now();
+        dependencies.onProgress?.({
+          jobId,
+          step: 'summary',
+          status: 'started'
+        });
         const summary = await dependencies.summarizer.summarize({
           transcript: transcription.text
         });
         summaryLatencyMs = elapsedMs(summaryStartedAtMs);
+        dependencies.onProgress?.({
+          jobId,
+          step: 'summary',
+          status: 'completed',
+          durationMs: summaryLatencyMs
+        });
         const processingStartedAt = now();
         const pendingLabel = await dependencies.pendingSenderLabels.consumeLatestForUser(
           context.user.id,
@@ -204,6 +243,12 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
         });
 
         for (const [index, body] of replyChunks.entries()) {
+          dependencies.onProgress?.({
+            jobId,
+            step: 'reply',
+            status: 'started'
+          });
+          const replyStartedAtMs = Date.now();
           await sendWhatsAppTextOnce({
             outboundMessages: dependencies.outboundMessages,
             whatsapp: dependencies.whatsapp,
@@ -215,6 +260,12 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
             body,
             contextMessageId: context.inboundMessage.whatsappMessageId,
             now
+          });
+          dependencies.onProgress?.({
+            jobId,
+            step: 'reply',
+            status: 'completed',
+            durationMs: elapsedMs(replyStartedAtMs)
           });
         }
 
