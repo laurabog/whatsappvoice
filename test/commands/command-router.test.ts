@@ -269,8 +269,8 @@ describe('createCommandRouter', () => {
       normalizedLabel: 'alex',
       expiresAt: new Date(now.getTime() + 30 * 60 * 1000)
     });
-    expect(sentMessages[0]?.body).toBe('🏷️ Got it — I’ll label the next voice note as from Alex.');
-    expect([...outboundMessages.records.values()][0]?.replyKind).toBe('sender_label');
+    expect(sentMessages).toHaveLength(0);
+    expect([...outboundMessages.records.values()]).toHaveLength(0);
   });
 
   it('does not duplicate sender-label side effects or replies for duplicate text webhooks', async () => {
@@ -283,7 +283,7 @@ describe('createCommandRouter', () => {
 
     expect(dependencies.pendingSenderLabels.createPendingLabel).toHaveBeenCalledOnce();
     expect(dependencies.inboundMessages.updateStatus).toHaveBeenCalledOnce();
-    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages).toHaveLength(0);
   });
 
   it('reruns sender-label work when a previous duplicate command attempt did not complete', async () => {
@@ -310,7 +310,7 @@ describe('createCommandRouter', () => {
 
     expect(dependencies.pendingSenderLabels.createPendingLabel).toHaveBeenCalledTimes(2);
     expect(dependencies.inboundMessages.updateStatus).toHaveBeenCalledOnce();
-    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages).toHaveLength(0);
   });
 
   it('updates a recent completed summary from an after-note label', async () => {
@@ -345,9 +345,7 @@ describe('createCommandRouter', () => {
       fromLabel: 'Laura',
       fromLabelConfidence: 'user_provided'
     });
-    expect(sentMessages[0]?.body).toBe(
-      '🏷️ Got it — I’ll remember the latest voice note as from Laura.\n\n“Alex asks about dinner.”'
-    );
+    expect(sentMessages[0]?.body).toBe('Done — latest voice note is now from Laura.');
   });
 
   it('targets a recent in-flight audio message from an after-note label', async () => {
@@ -414,7 +412,7 @@ describe('createCommandRouter', () => {
       expiresAt: new Date(now.getTime() + 30 * 60 * 1000),
       targetInboundMessageId: 'inbound-audio-1'
     });
-    expect(sentMessages[0]?.body).toBe('🏷️ Got it — I’ll label that voice note as from Laura.');
+    expect(sentMessages).toHaveLength(0);
   });
 
   it('treats after-note labels as unsupported when there is no recent target', async () => {
@@ -432,7 +430,7 @@ describe('createCommandRouter', () => {
   });
 
   it('renames the latest summary with a longer explicit correction window', async () => {
-    const { dependencies, now } = makeDependencies({
+    const { dependencies, sentMessages, now } = makeDependencies({
       summaries: {
         countForUserSince: vi.fn(async () => 2),
         softDeleteForUser: vi.fn(async () => 0),
@@ -463,6 +461,7 @@ describe('createCommandRouter', () => {
       fromLabel: 'Laura',
       fromLabelConfidence: 'user_provided'
     });
+    expect(sentMessages[0]?.body).toBe('Done — latest voice note is now from Laura.');
   });
 
   it('replies helpfully to unsupported text', async () => {

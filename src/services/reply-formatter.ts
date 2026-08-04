@@ -93,7 +93,7 @@ function recommendationText(recommendation: ListeningRecommendation): string {
     return 'Worth listening when you have time.';
   }
 
-  return 'Summary is probably enough.';
+  return 'You can probably skip the audio.';
 }
 
 function bulletLines(values: string[], fallback: string): string {
@@ -101,7 +101,27 @@ function bulletLines(values: string[], fallback: string): string {
     return fallback;
   }
 
-  return values.map((value) => `- ${value}`).join('\n');
+  return values.map((value) => `• ${value}`).join('\n');
+}
+
+function cleanGreetingName(fromLabel: string): string | null {
+  const label = fromLabel.trim();
+  if (!label || label.toLowerCase() === 'unknown sender') {
+    return null;
+  }
+
+  return label.replace(/^probably\s+/i, '').trim() || null;
+}
+
+function formatCopyPasteReply(fromLabel: string): string | null {
+  const greetingName = cleanGreetingName(fromLabel);
+  const greeting = greetingName ? `Thanks ${greetingName}` : 'Thanks';
+
+  return [
+    '💬 Copy-paste reply',
+    '',
+    `${greeting}, got your voice note. I’ll check this and reply properly soon.`
+  ].join('\n');
 }
 
 export function formatSummaryReply(input: FormatSummaryReplyInput): string[] {
@@ -111,26 +131,42 @@ export function formatSummaryReply(input: FormatSummaryReplyInput): string[] {
   );
   const replyLines = bulletLines(
     input.summary.questionsOrRequests,
-    input.summary.replyNeeded ? 'Reply needed, but no exact ask was extracted.' : 'Probably not.'
+    input.summary.replyNeeded
+      ? 'A reply is probably useful, but no exact ask was extracted.'
+      : 'No obvious reply needed.'
   );
-
-  return [
+  const replies = [
     [
       `🎧 Voice note from ${input.fromLabel}`,
-      `Received: ${formatReceivedAt(input.receivedAt, input.now, input.timeZone)}`,
+      `🕒 ${formatReceivedAt(input.receivedAt, input.now, input.timeZone)}`,
       '',
+      '✨ The gist',
       input.summary.shortSummary,
       '',
-      'Important',
+      '🔎 Key bits',
       importantLines,
       '',
-      'You may want to reply',
+      '💬 Reply needed?',
       replyLines,
       '',
-      'Listen?',
+      '🎧 Listen?',
       recommendationText(input.summary.listeningRecommendation),
       '',
-      'Reply TRANSCRIPT within 30 days if you want the full transcript.'
+      'Send TRANSCRIPT for the full text. Saved for 30 days.'
     ].join('\n')
   ];
+  const copyPasteReply =
+    input.summary.replyNeeded || input.summary.questionsOrRequests.length > 0
+      ? formatCopyPasteReply(input.fromLabel)
+      : null;
+
+  if (copyPasteReply) {
+    replies.push(copyPasteReply);
+  }
+
+  return replies;
+}
+
+export function formatLabelUpdatedMessage(label: string): string {
+  return `Done — latest voice note is now from ${label}.`;
 }

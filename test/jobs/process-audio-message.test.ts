@@ -193,7 +193,7 @@ describe('createAudioMessageProcessor', () => {
       processed: true,
       summaryId: 'summary-1',
       transcriptId: 'transcript-1',
-      replyCount: 1
+      replyCount: 2
     });
 
     expect(dependencies.pendingSenderLabels.consumeLatestForInboundMessage).toHaveBeenCalledWith(
@@ -216,9 +216,14 @@ describe('createAudioMessageProcessor', () => {
         summaryId: 'summary-1'
       })
     );
-    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages).toHaveLength(2);
     expect(sentMessages[0]?.to).toBe('15551234567');
-    expect(sentMessages[0]?.body).toContain('🎧 Voice note from Alex\nReceived: today at 14:00');
+    expect(sentMessages[0]?.body).toContain('🎧 Voice note from Alex\n🕒 today at 14:00');
+    expect(sentMessages[1]?.body).toBe(
+      ['💬 Copy-paste reply', '', 'Thanks Alex, got your voice note. I’ll check this and reply properly soon.'].join(
+        '\n'
+      )
+    );
     expect(dependencies.jobStore.markCompleted).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId: 'job-1',
@@ -309,6 +314,6 @@ describe('createAudioMessageProcessor', () => {
     await processor.processAudioMessage('job-1');
     await processor.processAudioMessage('job-1');
 
-    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages).toHaveLength(2);
   });
 });

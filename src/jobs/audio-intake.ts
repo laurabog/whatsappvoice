@@ -9,7 +9,7 @@ import {
   type OutboundMessagesForSending
 } from '../services/idempotent-whatsapp-sender.js';
 
-export const processingAckMessage = 'Got it - summarizing this one now.';
+export const processingAckMessage = 'Got it — working a little voice-note magic ✨';
 
 export function dailyLimitMessage(limit: number): string {
   return `You have reached the daily friend-beta limit of ${limit} voice notes. Please try again tomorrow.`;

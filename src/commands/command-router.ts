@@ -15,6 +15,7 @@ import {
 } from './messages.js';
 import { parseSenderLabelCommand } from './sender-label-command.js';
 import { formatTranscriptReply } from './transcript-command.js';
+import { formatLabelUpdatedMessage } from '../services/reply-formatter.js';
 
 export type CommandHandlingResult =
   | {
@@ -125,23 +126,6 @@ function minutesAgo(now: Date, minutes: number): Date {
 
 function inboundDisplayTime(inboundMessage: InboundMessageRecord): Date {
   return inboundMessage.whatsappTimestamp ?? inboundMessage.receivedAt;
-}
-
-function labelConfirmationMessage(input: {
-  label: string;
-  summary?: {
-    oneSentenceSummary: string;
-  } | null;
-}): string {
-  if (input.summary) {
-    return [
-      `🏷️ Got it — I’ll remember the latest voice note as from ${input.label}.`,
-      '',
-      `“${input.summary.oneSentenceSummary}”`
-    ].join('\n');
-  }
-
-  return `🏷️ Got it — I’ll label that voice note as from ${input.label}.`;
 }
 
 async function sendReply(
@@ -304,17 +288,6 @@ export function createCommandRouter(dependencies: CommandRouterDependencies) {
             await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
           }
 
-          await sendReply(
-            message,
-            inboundMessage,
-            user,
-            dependencies.outboundMessages,
-            dependencies.whatsapp,
-            'sender_label',
-            `🏷️ Got it — I’ll label the next voice note as from ${senderLabel.label}.`,
-            0,
-            now
-          );
           return { handled: true, command: 'sender_label' };
         }
 
@@ -350,33 +323,17 @@ export function createCommandRouter(dependencies: CommandRouterDependencies) {
               await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
             }
 
-            await sendReply(
-              message,
-              inboundMessage,
-              user,
-              dependencies.outboundMessages,
-              dependencies.whatsapp,
-              'sender_label',
-              labelConfirmationMessage({
-                label: senderLabel.label
-              }),
-              0,
-              now
-            );
             return { handled: true, command: 'sender_label' };
           }
         }
 
         if (latestSummary) {
-          const updatedSummary = shouldRunCommandWork
-            ? await dependencies.summaries.updateLabel({
-                summaryId: latestSummary.id,
-                fromLabel: senderLabel.label,
-                fromLabelConfidence: 'user_provided'
-              })
-            : latestSummary;
-
           if (shouldRunCommandWork) {
+            await dependencies.summaries.updateLabel({
+              summaryId: latestSummary.id,
+              fromLabel: senderLabel.label,
+              fromLabelConfidence: 'user_provided'
+            });
             await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
           }
 
@@ -387,10 +344,7 @@ export function createCommandRouter(dependencies: CommandRouterDependencies) {
             dependencies.outboundMessages,
             dependencies.whatsapp,
             'sender_label',
-            labelConfirmationMessage({
-              label: senderLabel.label,
-              summary: updatedSummary
-            }),
+            formatLabelUpdatedMessage(senderLabel.label),
             0,
             now
           );

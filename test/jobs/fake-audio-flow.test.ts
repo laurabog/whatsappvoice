@@ -272,8 +272,9 @@ describe('fake audio flow', () => {
     await processor.processAudioMessage('job-1');
 
     expect(jobsByInboundId).toHaveLength(1);
-    expect(sentMessages).toHaveLength(2);
-    expect(sentMessages[0]?.body).toBe('Got it - summarizing this one now.');
+    expect(sentMessages).toHaveLength(3);
+    expect(sentMessages[0]?.body).toBe('Got it — working a little voice-note magic ✨');
     expect(sentMessages[1]?.body).toContain('🎧 Voice note from unknown sender');
+    expect(sentMessages[2]?.body).toContain('💬 Copy-paste reply');
   });
 });
