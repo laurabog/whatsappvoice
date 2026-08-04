@@ -8,6 +8,7 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -223,5 +224,36 @@ describe('MetaWhatsAppClient', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it('times out stalled WhatsApp media response bodies', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'audio/ogg; codecs=opus'
+      }),
+      body: new ReadableStream(),
+      arrayBuffer: vi.fn(() => new Promise<ArrayBuffer>(() => undefined)),
+      text: vi.fn()
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const client = new MetaWhatsAppClient({
+      WHATSAPP_ACCESS_TOKEN: 'access-token',
+      WHATSAPP_GRAPH_API_VERSION: 'v23.0',
+      WHATSAPP_PHONE_NUMBER_ID: 'phone-number-id'
+    });
+    const promise = client.downloadMediaToFile({
+      url: 'https://lookaside.whatsapp.example/media',
+      destinationPath: '/tmp/stalled-audio.ogg'
+    });
+    const expectation = expect(promise).rejects.toThrow(
+      'WhatsApp downloadMedia body timed out after 10000ms'
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expectation;
   });
 });

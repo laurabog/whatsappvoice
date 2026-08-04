@@ -72,20 +72,44 @@ function isRetryableFetchError(error: unknown): boolean {
   );
 }
 
-async function fetchWithTimeout(input: string | URL, init: RequestInit): Promise<Response> {
+function timeoutError(label: string): Error {
+  const error = new Error(`${label} timed out after ${META_FETCH_TIMEOUT_MS}ms`);
+  error.name = 'TimeoutError';
+  return error;
+}
+
+async function withMetaTimeout<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  label: string
+): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, META_FETCH_TIMEOUT_MS);
+  let timeout: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(timeoutError(label));
+    }, META_FETCH_TIMEOUT_MS);
+  });
+  const operationPromise = operation(controller.signal);
+  operationPromise.catch(() => undefined);
 
   try {
-    return await fetch(input, {
-      ...init,
-      signal: init.signal ?? controller.signal
-    });
+    return await Promise.race([operationPromise, timeoutPromise]);
   } finally {
-    clearTimeout(timeout);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
+}
+
+async function fetchWithTimeout(input: string | URL, init: RequestInit): Promise<Response> {
+  return withMetaTimeout(
+    (signal) => fetch(input, {
+      ...init,
+      signal: init.signal ?? signal
+    }),
+    'WhatsApp API request'
+  );
 }
 
 async function fetchMeta(input: string | URL, init: RequestInit): Promise<Response> {
@@ -227,7 +251,11 @@ export class MetaWhatsAppClient implements WhatsAppTextSender, WhatsAppMediaClie
       throw new Error('WhatsApp downloadMedia response did not include a body');
     }
 
-    await writeFile(input.destinationPath, Buffer.from(await response.arrayBuffer()));
+    const body = await withMetaTimeout(
+      () => response.arrayBuffer(),
+      'WhatsApp downloadMedia body'
+    );
+    await writeFile(input.destinationPath, Buffer.from(body));
     const downloadedFile = await stat(input.destinationPath);
 
     return {
