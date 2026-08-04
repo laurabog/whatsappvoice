@@ -18,7 +18,7 @@ describe('loadConfig', () => {
     expect(config.MAX_AUDIO_DURATION_SECONDS).toBe(600);
     expect(config.TRANSCRIPT_RETENTION_DAYS).toBe(30);
     expect(config.WORKER_POLL_INTERVAL_MS).toBe(5000);
-    expect(config.PROCESSING_JOB_TIMEOUT_MS).toBe(900000);
+    expect(config.PROCESSING_JOB_TIMEOUT_MS).toBe(480000);
     expect(config.RETENTION_CLEANUP_INTERVAL_MS).toBe(3600000);
     expect(config.AUDIO_DURATION_PROBE).toBe('disabled');
   });

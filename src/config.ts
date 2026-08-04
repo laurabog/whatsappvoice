@@ -28,7 +28,7 @@ const envSchema = z.object({
   JOB_METADATA_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   PENDING_LABEL_TTL_MINUTES: z.coerce.number().int().positive().default(30),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
-  PROCESSING_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  PROCESSING_JOB_TIMEOUT_MS: z.coerce.number().int().positive().default(8 * 60 * 1000),
   RETENTION_CLEANUP_INTERVAL_MS: z.coerce.number().int().positive().default(60 * 60 * 1000),
   AUDIO_DURATION_PROBE: z.enum(['disabled', 'ffprobe']).default('disabled'),
   TEMP_AUDIO_DIR: z.string().min(1).default('/tmp/whatsapp-summary-audio'),
