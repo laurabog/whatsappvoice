@@ -99,6 +99,18 @@ export function createAudioWorkerRuntime({
         })
       : undefined
   });
+  const processAudioJob = async (jobId: string) => {
+    logger?.info({ jobId }, 'Audio job processing started');
+
+    try {
+      const result = await processor.processAudioMessage(jobId);
+      logger?.info({ jobId, result }, 'Audio job processing completed');
+      return result;
+    } catch (error) {
+      logger?.error({ error, jobId }, 'Audio job processing failed');
+      throw error;
+    }
+  };
   const cleanup = createRetentionCleanup({
     config,
     summaries,
@@ -109,7 +121,7 @@ export function createAudioWorkerRuntime({
   const worker = createJobWorker({
     jobStore,
     workerId: `worker-${randomUUID()}`,
-    processJob: processor.processAudioMessage,
+    processJob: processAudioJob,
     pollIntervalMs: config.WORKER_POLL_INTERVAL_MS,
     processingJobTimeoutMs: config.PROCESSING_JOB_TIMEOUT_MS,
     onError: reportAsyncError(logger, 'Audio worker poll failed')
