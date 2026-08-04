@@ -29,6 +29,7 @@ export type JobWorkerDependencies = {
   now?: () => Date;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
+  onError?: (error: unknown) => void;
 };
 
 export type JobWorker = {
@@ -112,7 +113,7 @@ export function createJobWorker(dependencies: JobWorkerDependencies): JobWorker 
       }
 
       timer = setIntervalFn(() => {
-        void runOnce();
+        void runOnce().catch(dependencies.onError ?? (() => undefined));
       }, dependencies.pollIntervalMs);
     },
 
