@@ -8,6 +8,7 @@ describe('createJobDrainTrigger', () => {
       config: {
         JOB_TRIGGER_MODE: 'disabled',
         PUBLIC_APP_URL: undefined,
+        QSTASH_URL: 'https://qstash.upstash.io',
         QSTASH_TOKEN: undefined,
         INTERNAL_JOB_TOKEN: undefined,
         QSTASH_TIMEOUT_SECONDS: 120
@@ -33,6 +34,7 @@ describe('createJobDrainTrigger', () => {
       config: {
         JOB_TRIGGER_MODE: 'qstash',
         PUBLIC_APP_URL: undefined,
+        QSTASH_URL: 'https://qstash.upstash.io',
         QSTASH_TOKEN: 'qstash-token',
         INTERNAL_JOB_TOKEN: 'internal-token',
         QSTASH_TIMEOUT_SECONDS: 120
@@ -61,6 +63,7 @@ describe('createJobDrainTrigger', () => {
       config: {
         JOB_TRIGGER_MODE: 'qstash',
         PUBLIC_APP_URL: 'https://voiceicorn.example/',
+        QSTASH_URL: 'https://qstash-eu-central-1.upstash.io/',
         QSTASH_TOKEN: 'qstash-token',
         INTERNAL_JOB_TOKEN: 'internal-token',
         QSTASH_TIMEOUT_SECONDS: 90
@@ -82,7 +85,7 @@ describe('createJobDrainTrigger', () => {
     });
 
     expect(fetchFn).toHaveBeenCalledWith(
-      'https://qstash.upstash.io/v2/publish/https%3A%2F%2Fvoiceicorn.example%2Finternal%2Fjobs%2Fdrain',
+      'https://qstash-eu-central-1.upstash.io/v2/publish/https%3A%2F%2Fvoiceicorn.example%2Finternal%2Fjobs%2Fdrain',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({

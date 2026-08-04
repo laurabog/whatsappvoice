@@ -32,6 +32,7 @@ export type CreateJobDrainTriggerOptions = {
     AppConfig,
     | 'JOB_TRIGGER_MODE'
     | 'PUBLIC_APP_URL'
+    | 'QSTASH_URL'
     | 'QSTASH_TOKEN'
     | 'INTERNAL_JOB_TOKEN'
     | 'QSTASH_TIMEOUT_SECONDS'
@@ -43,8 +44,8 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-function qstashPublishUrl(destinationUrl: string): string {
-  return `https://qstash.upstash.io/v2/publish/${encodeURIComponent(destinationUrl)}`;
+function qstashPublishUrl(qstashUrl: string, destinationUrl: string): string {
+  return `${trimTrailingSlash(qstashUrl)}/v2/publish/${encodeURIComponent(destinationUrl)}`;
 }
 
 export function createJobDrainTrigger({
@@ -65,7 +66,7 @@ export function createJobDrainTrigger({
       }
 
       const destinationUrl = `${trimTrailingSlash(config.PUBLIC_APP_URL)}/internal/jobs/drain`;
-      const response = await fetchFn(qstashPublishUrl(destinationUrl), {
+      const response = await fetchFn(qstashPublishUrl(config.QSTASH_URL, destinationUrl), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${config.QSTASH_TOKEN}`,

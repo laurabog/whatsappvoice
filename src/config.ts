@@ -55,6 +55,7 @@ const envSchema = z.object({
   INTERNAL_JOB_TOKEN: optionalNonEmptyString,
   JOB_TRIGGER_MODE: z.enum(['disabled', 'qstash']).default('disabled'),
   PUBLIC_APP_URL: optionalNonEmptyString,
+  QSTASH_URL: z.string().url().default('https://qstash.upstash.io'),
   QSTASH_TOKEN: optionalNonEmptyString,
   QSTASH_DRAIN_DELAY_SECONDS: z.coerce.number().int().nonnegative().default(2),
   QSTASH_DRAIN_MAX_JOBS: z.coerce.number().int().positive().max(3).default(1),

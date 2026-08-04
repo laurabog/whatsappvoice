@@ -26,6 +26,7 @@ describe('loadConfig', () => {
     expect(config.RETENTION_CLEANUP_INTERVAL_MS).toBe(3600000);
     expect(config.RUN_IN_PROCESS_WORKER).toBe(true);
     expect(config.JOB_TRIGGER_MODE).toBe('disabled');
+    expect(config.QSTASH_URL).toBe('https://qstash.upstash.io');
     expect(config.QSTASH_DRAIN_DELAY_SECONDS).toBe(2);
     expect(config.QSTASH_DRAIN_MAX_JOBS).toBe(1);
     expect(config.QSTASH_TIMEOUT_SECONDS).toBe(120);
