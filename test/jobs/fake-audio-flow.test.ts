@@ -111,7 +111,8 @@ describe('fake audio flow', () => {
 
     const intake = createAudioIntakeHandler({
       config: {
-        MAX_DAILY_MESSAGES_PER_USER: 10
+        MAX_DAILY_MESSAGES_PER_USER: 10,
+        AUDIO_LABEL_GRACE_PERIOD_MS: 4000
       },
       whatsapp,
       users: {
@@ -165,13 +166,14 @@ describe('fake audio flow', () => {
         )
       },
       summaryJobs: {
-        createForInboundMessage: vi.fn(async (inboundMessageId) => {
+        createForInboundMessage: vi.fn(async (inboundMessageId, nextAttemptAt) => {
           const existing = jobsByInboundId.get(inboundMessageId);
           if (existing) {
             return existing;
           }
 
           const job = makeJob(inboundMessageId);
+          job.nextAttemptAt = nextAttemptAt ?? now;
           jobsByInboundId.set(inboundMessageId, job);
           return job;
         })
@@ -211,7 +213,10 @@ describe('fake audio flow', () => {
         })
       },
       pendingSenderLabels: {
-        consumeLatestForUser: vi.fn(async () => {
+        consumeLatestForInboundMessage: vi.fn(async (_userId, inboundMessageId) => {
+          if (pendingLabel?.targetInboundMessageId && pendingLabel.targetInboundMessageId !== inboundMessageId) {
+            return null;
+          }
           const label = pendingLabel;
           pendingLabel = null;
           return label;
@@ -269,7 +274,6 @@ describe('fake audio flow', () => {
     expect(jobsByInboundId).toHaveLength(1);
     expect(sentMessages).toHaveLength(2);
     expect(sentMessages[0]?.body).toBe('Got it - summarizing this one now.');
-    expect(sentMessages[1]?.body).toContain('Voice note summary');
-    expect(sentMessages[1]?.body).toContain('From: unknown sender');
+    expect(sentMessages[1]?.body).toContain('🎧 Voice note from unknown sender');
   });
 });

@@ -1,6 +1,7 @@
 export type ParsedSenderLabelCommand =
   | {
       ok: true;
+      intent: 'before_next' | 'after_recent' | 'rename_latest';
       label: string;
       normalizedLabel: string;
     }
@@ -37,21 +38,51 @@ function isValidLabel(label: string): boolean {
 
 export function parseSenderLabelCommand(text: string): ParsedSenderLabelCommand {
   const cleaned = cleanText(text);
-  const match = /^(?:from\s*:?\s+|sender\s+)(.+)$/i.exec(cleaned);
+  const patterns: Array<{
+    intent: 'before_next' | 'after_recent' | 'rename_latest';
+    pattern: RegExp;
+  }> = [
+    {
+      intent: 'before_next',
+      pattern: /^(?:from\s*:?\s+|sender\s+|sent\s+by\s+)(.+)$/i
+    },
+    {
+      intent: 'after_recent',
+      pattern: /^(.+?)\s+sent\s+this$/i
+    },
+    {
+      intent: 'after_recent',
+      pattern: /^(?:that|this)\s+was\s+from\s+(.+)$/i
+    },
+    {
+      intent: 'after_recent',
+      pattern: /^voice\s+note\s+from\s+(.+)$/i
+    },
+    {
+      intent: 'rename_latest',
+      pattern: /^(?:rename|label)\s+latest\s+(.+)$/i
+    }
+  ];
 
-  if (!match) {
-    return { ok: false, reason: 'not_sender_label' };
+  for (const { intent, pattern } of patterns) {
+    const match = pattern.exec(cleaned);
+    if (!match) {
+      continue;
+    }
+
+    const label = cleanText(match[1] ?? '');
+
+    if (!isValidLabel(label)) {
+      return { ok: false, reason: 'invalid_label' };
+    }
+
+    return {
+      ok: true,
+      intent,
+      label,
+      normalizedLabel: normalizeLabel(label)
+    };
   }
 
-  const label = cleanText(match[1] ?? '');
-
-  if (!isValidLabel(label)) {
-    return { ok: false, reason: 'invalid_label' };
-  }
-
-  return {
-    ok: true,
-    label,
-    normalizedLabel: normalizeLabel(label)
-  };
+  return { ok: false, reason: 'not_sender_label' };
 }

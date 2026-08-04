@@ -13,6 +13,12 @@ export type TranscriptRecord = {
   deletedAt: Date | null;
 };
 
+export type TranscriptRecordForReply = {
+  text: string;
+  fromLabel: string;
+  receivedAt: Date;
+};
+
 export type InsertTranscriptInput = {
   userId: string;
   inboundMessageId: string;
@@ -114,22 +120,39 @@ export function createTranscriptsRepository(db: DbClient) {
 
     findByInboundMessageId,
 
-    async findLatestAvailableForUser(userId: string, now: Date): Promise<TranscriptRecord | null> {
-      const result = await db.query<TranscriptRow>(
+    async findLatestAvailableForUser(
+      userId: string,
+      now: Date
+    ): Promise<TranscriptRecordForReply | null> {
+      const result = await db.query<
+        TranscriptRow & {
+          from_label: string;
+          display_received_at: Date;
+        }
+      >(
         `
-          select *
-          from transcripts
-          where user_id = $1
-            and expires_at > $2
-            and deleted_at is null
-          order by created_at desc
+          select t.*, s.from_label, coalesce(i.whatsapp_timestamp, i.received_at) as display_received_at
+          from transcripts t
+          join summaries s on s.id = t.summary_id
+          join inbound_messages i on i.id = t.inbound_message_id
+          where t.user_id = $1
+            and t.expires_at > $2
+            and t.deleted_at is null
+            and s.deleted_at is null
+          order by t.created_at desc
           limit 1
         `,
         [userId, now]
       );
 
       const row = result.rows[0];
-      return row ? mapTranscriptRow(row) : null;
+      return row
+        ? {
+            text: row.text,
+            fromLabel: row.from_label,
+            receivedAt: row.display_received_at
+          }
+        : null;
     },
 
     async softDeleteForUser(userId: string, deletedAt: Date): Promise<number> {

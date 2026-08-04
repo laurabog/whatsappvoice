@@ -34,7 +34,11 @@ export type CommandHandlingResult =
 export type CommandRouterDependencies = {
   config: Pick<
     AppConfig,
-    'MAX_DAILY_MESSAGES_PER_USER' | 'MAX_TRANSCRIPT_REPLY_CHARS' | 'PENDING_LABEL_TTL_MINUTES'
+    | 'MAX_DAILY_MESSAGES_PER_USER'
+    | 'MAX_TRANSCRIPT_REPLY_CHARS'
+    | 'PENDING_LABEL_TTL_MINUTES'
+    | 'AFTER_NOTE_LABEL_WINDOW_MINUTES'
+    | 'RENAME_LATEST_LABEL_WINDOW_HOURS'
   >;
   whatsapp: WhatsAppTextSender;
   users: {
@@ -57,6 +61,10 @@ export type CommandRouterDependencies = {
       status: 'received' | 'ignored' | 'queued' | 'processing' | 'completed' | 'failed',
       errorCode?: string | null
     ): Promise<InboundMessageRecord>;
+    findLatestQueuedOrProcessingAudioForUserSince(
+      userId: string,
+      since: Date
+    ): Promise<InboundMessageRecord | null>;
   };
   outboundMessages: OutboundMessagesForSending;
   pendingSenderLabels: {
@@ -65,15 +73,35 @@ export type CommandRouterDependencies = {
       label: string;
       normalizedLabel: string;
       expiresAt: Date;
+      targetInboundMessageId?: string | null;
     }): Promise<unknown>;
     deleteForUser(userId: string): Promise<number>;
   };
   summaries: {
     countForUserSince(userId: string, since: Date): Promise<number>;
     softDeleteForUser(userId: string, deletedAt: Date): Promise<number>;
+    findLatestActiveForUserSince(input: {
+      userId: string;
+      receivedAfter: Date;
+      now: Date;
+    }): Promise<{
+      id: string;
+      oneSentenceSummary: string;
+      receivedAt: Date;
+    } | null>;
+    updateLabel(input: {
+      summaryId: string;
+      fromLabel: string;
+      fromLabelConfidence: string;
+    }): Promise<{
+      oneSentenceSummary: string;
+    }>;
   };
   transcripts: {
-    findLatestAvailableForUser(userId: string, now: Date): Promise<{ text: string } | null>;
+    findLatestAvailableForUser(
+      userId: string,
+      now: Date
+    ): Promise<{ text: string; fromLabel: string; receivedAt: Date } | null>;
     softDeleteForUser(userId: string, deletedAt: Date): Promise<number>;
   };
   now?: () => Date;
@@ -89,6 +117,31 @@ function commandKeyword(text: string): string {
 
 function hoursAgo(now: Date, hours: number): Date {
   return new Date(now.getTime() - hours * 60 * 60 * 1000);
+}
+
+function minutesAgo(now: Date, minutes: number): Date {
+  return new Date(now.getTime() - minutes * 60 * 1000);
+}
+
+function inboundDisplayTime(inboundMessage: InboundMessageRecord): Date {
+  return inboundMessage.whatsappTimestamp ?? inboundMessage.receivedAt;
+}
+
+function labelConfirmationMessage(input: {
+  label: string;
+  summary?: {
+    oneSentenceSummary: string;
+  } | null;
+}): string {
+  if (input.summary) {
+    return [
+      `🏷️ Got it — I’ll remember the latest voice note as from ${input.label}.`,
+      '',
+      `“${input.summary.oneSentenceSummary}”`
+    ].join('\n');
+  }
+
+  return `🏷️ Got it — I’ll label that voice note as from ${input.label}.`;
 }
 
 async function sendReply(
@@ -235,32 +288,114 @@ export function createCommandRouter(dependencies: CommandRouterDependencies) {
 
       const senderLabel = parseSenderLabelCommand(text);
       if (senderLabel.ok) {
-        if (shouldRunCommandWork) {
-          const expiresAt = new Date(
-            now().getTime() + dependencies.config.PENDING_LABEL_TTL_MINUTES * 60 * 1000
-          );
+        const handledAt = now();
+        const expiresAt = new Date(
+          handledAt.getTime() + dependencies.config.PENDING_LABEL_TTL_MINUTES * 60 * 1000
+        );
 
-          await dependencies.pendingSenderLabels.createPendingLabel({
-            userId: user.id,
-            label: senderLabel.label,
-            normalizedLabel: senderLabel.normalizedLabel,
-            expiresAt
-          });
-          await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
+        if (senderLabel.intent === 'before_next') {
+          if (shouldRunCommandWork) {
+            await dependencies.pendingSenderLabels.createPendingLabel({
+              userId: user.id,
+              label: senderLabel.label,
+              normalizedLabel: senderLabel.normalizedLabel,
+              expiresAt
+            });
+            await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
+          }
+
+          await sendReply(
+            message,
+            inboundMessage,
+            user,
+            dependencies.outboundMessages,
+            dependencies.whatsapp,
+            'sender_label',
+            `🏷️ Got it — I’ll label the next voice note as from ${senderLabel.label}.`,
+            0,
+            now
+          );
+          return { handled: true, command: 'sender_label' };
         }
 
-        await sendReply(
-          message,
-          inboundMessage,
-          user,
-          dependencies.outboundMessages,
-          dependencies.whatsapp,
-          'help',
-          `Got it. I will label the next voice note as from ${senderLabel.label}.`,
-          0,
-          now
-        );
-        return { handled: true, command: 'sender_label' };
+        const labelWindowStart =
+          senderLabel.intent === 'rename_latest'
+            ? hoursAgo(handledAt, dependencies.config.RENAME_LATEST_LABEL_WINDOW_HOURS)
+            : minutesAgo(handledAt, dependencies.config.AFTER_NOTE_LABEL_WINDOW_MINUTES);
+        const latestSummary = await dependencies.summaries.findLatestActiveForUserSince({
+          userId: user.id,
+          receivedAfter: labelWindowStart,
+          now: handledAt
+        });
+
+        if (senderLabel.intent === 'after_recent') {
+          const latestInFlightAudio =
+            await dependencies.inboundMessages.findLatestQueuedOrProcessingAudioForUserSince(
+              user.id,
+              labelWindowStart
+            );
+
+          if (
+            latestInFlightAudio &&
+            (!latestSummary || inboundDisplayTime(latestInFlightAudio) >= latestSummary.receivedAt)
+          ) {
+            if (shouldRunCommandWork) {
+              await dependencies.pendingSenderLabels.createPendingLabel({
+                userId: user.id,
+                label: senderLabel.label,
+                normalizedLabel: senderLabel.normalizedLabel,
+                expiresAt,
+                targetInboundMessageId: latestInFlightAudio.id
+              });
+              await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
+            }
+
+            await sendReply(
+              message,
+              inboundMessage,
+              user,
+              dependencies.outboundMessages,
+              dependencies.whatsapp,
+              'sender_label',
+              labelConfirmationMessage({
+                label: senderLabel.label
+              }),
+              0,
+              now
+            );
+            return { handled: true, command: 'sender_label' };
+          }
+        }
+
+        if (latestSummary) {
+          const updatedSummary = shouldRunCommandWork
+            ? await dependencies.summaries.updateLabel({
+                summaryId: latestSummary.id,
+                fromLabel: senderLabel.label,
+                fromLabelConfidence: 'user_provided'
+              })
+            : latestSummary;
+
+          if (shouldRunCommandWork) {
+            await dependencies.inboundMessages.updateStatus(inboundMessage.id, 'completed');
+          }
+
+          await sendReply(
+            message,
+            inboundMessage,
+            user,
+            dependencies.outboundMessages,
+            dependencies.whatsapp,
+            'sender_label',
+            labelConfirmationMessage({
+              label: senderLabel.label,
+              summary: updatedSummary
+            }),
+            0,
+            now
+          );
+          return { handled: true, command: 'sender_label' };
+        }
       }
 
       if (shouldRunCommandWork) {
@@ -273,7 +408,7 @@ export function createCommandRouter(dependencies: CommandRouterDependencies) {
         user,
         dependencies.outboundMessages,
         dependencies.whatsapp,
-        'help',
+        'unsupported_text',
         unsupportedMessage,
         0,
         now

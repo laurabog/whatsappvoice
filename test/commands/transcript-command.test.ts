@@ -8,18 +8,18 @@ describe('formatTranscriptReply', () => {
   });
 
   it('formats short transcripts in one reply', () => {
-    expect(formatTranscriptReply({ text: 'Please call me back.' }, 3500)).toEqual([
-      'Transcript\n\nPlease call me back.'
+    expect(formatTranscriptReply({ text: 'Please call me back.', fromLabel: 'Laura' }, 3500)).toEqual([
+      'Transcript from Laura\n\nPlease call me back.'
     ]);
   });
 
   it('chunks long transcripts without exceeding the configured reply size', () => {
-    const replies = formatTranscriptReply({ text: 'a'.repeat(1200) }, 500);
+    const replies = formatTranscriptReply({ text: 'a'.repeat(1200), fromLabel: 'Laura' }, 500);
 
     expect(replies).toHaveLength(3);
-    expect(replies[0]).toMatch(/^Transcript 1\/3\n\n/);
-    expect(replies[1]).toMatch(/^Transcript 2\/3\n\n/);
-    expect(replies[2]).toMatch(/^Transcript 3\/3\n\n/);
+    expect(replies[0]).toMatch(/^Transcript from Laura 1\/3\n\n/);
+    expect(replies[1]).toMatch(/^Transcript from Laura 2\/3\n\n/);
+    expect(replies[2]).toMatch(/^Transcript from Laura 3\/3\n\n/);
     expect(replies.every((reply) => reply.length <= 500)).toBe(true);
     expect(replies.map((reply) => reply.split('\n\n')[1]).join('')).toBe('a'.repeat(1200));
   });

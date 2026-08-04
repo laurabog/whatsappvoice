@@ -178,6 +178,28 @@ export function createInboundMessagesRepository(db: DbClient) {
       );
 
       return Number(result.rows[0]?.count ?? 0);
+    },
+
+    async findLatestQueuedOrProcessingAudioForUserSince(
+      userId: string,
+      since: Date
+    ): Promise<InboundMessageRecord | null> {
+      const result = await db.query<InboundMessageRow>(
+        `
+          select *
+          from inbound_messages
+          where user_id = $1
+            and message_type = 'audio'
+            and status in ('queued', 'processing')
+            and coalesce(whatsapp_timestamp, received_at) >= $2
+          order by coalesce(whatsapp_timestamp, received_at) desc, received_at desc
+          limit 1
+        `,
+        [userId, since]
+      );
+
+      const row = result.rows[0];
+      return row ? mapInboundMessageRow(row) : null;
     }
   };
 }

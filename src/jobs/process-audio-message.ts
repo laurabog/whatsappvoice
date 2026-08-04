@@ -40,7 +40,11 @@ export type ProcessAudioMessageDependencies = {
     }): Promise<unknown>;
   };
   pendingSenderLabels: {
-    consumeLatestForUser(userId: string, now: Date): Promise<PendingSenderLabelRecord | null>;
+    consumeLatestForInboundMessage(
+      userId: string,
+      inboundMessageId: string,
+      now: Date
+    ): Promise<PendingSenderLabelRecord | null>;
   };
   summaries: {
     insertIfNew(input: InsertSummaryInput): Promise<{ record: SummaryRecord; inserted: boolean }>;
@@ -197,8 +201,9 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
           durationMs: summaryLatencyMs
         });
         const processingStartedAt = now();
-        const pendingLabel = await dependencies.pendingSenderLabels.consumeLatestForUser(
+        const pendingLabel = await dependencies.pendingSenderLabels.consumeLatestForInboundMessage(
           context.user.id,
+          context.inboundMessage.id,
           processingStartedAt
         );
         const senderLabel = resolveSenderLabel({
@@ -239,6 +244,8 @@ export function createAudioMessageProcessor(dependencies: ProcessAudioMessageDep
           : summaryOutputFromRecord(summaryResult.record);
         const replyChunks = formatSummaryReply({
           fromLabel: summaryResult.record.fromLabel,
+          receivedAt: context.inboundMessage.whatsappTimestamp ?? context.inboundMessage.receivedAt,
+          now: now(),
           summary: replySummary
         });
 

@@ -4,6 +4,7 @@ import type { DbClient } from '../client.js';
 export type PendingSenderLabelRecord = {
   id: string;
   userId: string;
+  targetInboundMessageId: string | null;
   label: string;
   normalizedLabel: string;
   createdAt: Date;
@@ -14,6 +15,7 @@ export type PendingSenderLabelRecord = {
 type PendingSenderLabelRow = {
   id: string;
   user_id: string;
+  target_inbound_message_id: string | null;
   label: string;
   normalized_label: string;
   created_at: Date;
@@ -25,6 +27,7 @@ export function mapPendingSenderLabelRow(row: PendingSenderLabelRow): PendingSen
   return {
     id: row.id,
     userId: row.user_id,
+    targetInboundMessageId: row.target_inbound_message_id,
     label: row.label,
     normalizedLabel: row.normalized_label,
     createdAt: row.created_at,
@@ -40,6 +43,7 @@ export function createPendingSenderLabelsRepository(db: DbClient) {
       label: string;
       normalizedLabel: string;
       expiresAt: Date;
+      targetInboundMessageId?: string | null;
     }): Promise<PendingSenderLabelRecord> {
       await db.query(
         `
@@ -47,8 +51,12 @@ export function createPendingSenderLabelsRepository(db: DbClient) {
           set consumed_at = now()
           where user_id = $1
             and consumed_at is null
+            and (
+              ($2::uuid is null and target_inbound_message_id is null)
+              or target_inbound_message_id = $2
+            )
         `,
-        [input.userId]
+        [input.userId, input.targetInboundMessageId ?? null]
       );
 
       const result = await db.query<PendingSenderLabelRow>(
@@ -56,14 +64,22 @@ export function createPendingSenderLabelsRepository(db: DbClient) {
           insert into pending_sender_labels (
             id,
             user_id,
+            target_inbound_message_id,
             label,
             normalized_label,
             expires_at
           )
-          values ($1, $2, $3, $4, $5)
+          values ($1, $2, $3, $4, $5, $6)
           returning *
         `,
-        [randomUUID(), input.userId, input.label, input.normalizedLabel, input.expiresAt]
+        [
+          randomUUID(),
+          input.userId,
+          input.targetInboundMessageId ?? null,
+          input.label,
+          input.normalizedLabel,
+          input.expiresAt
+        ]
       );
 
       const row = result.rows[0];
@@ -89,7 +105,34 @@ export function createPendingSenderLabelsRepository(db: DbClient) {
       return result.rowCount ?? 0;
     },
 
-    async consumeLatestForUser(userId: string, now: Date): Promise<PendingSenderLabelRecord | null> {
+    async consumeLatestForInboundMessage(
+      userId: string,
+      inboundMessageId: string,
+      now: Date
+    ): Promise<PendingSenderLabelRecord | null> {
+      const targetedResult = await db.query<PendingSenderLabelRow>(
+        `
+          update pending_sender_labels
+          set consumed_at = $3
+          where id = (
+            select id
+            from pending_sender_labels
+            where user_id = $1
+              and target_inbound_message_id = $2
+              and consumed_at is null
+              and expires_at > $3
+            order by created_at desc
+            limit 1
+          )
+          returning *
+        `,
+        [userId, inboundMessageId, now]
+      );
+      const targetedRow = targetedResult.rows[0];
+      if (targetedRow) {
+        return mapPendingSenderLabelRow(targetedRow);
+      }
+
       const result = await db.query<PendingSenderLabelRow>(
         `
           update pending_sender_labels
@@ -98,6 +141,7 @@ export function createPendingSenderLabelsRepository(db: DbClient) {
             select id
             from pending_sender_labels
             where user_id = $1
+              and target_inbound_message_id is null
               and consumed_at is null
               and expires_at > $2
             order by created_at desc

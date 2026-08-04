@@ -149,6 +149,7 @@ describe('repository row mappers', () => {
       mapPendingSenderLabelRow({
         id: 'label-id',
         user_id: 'user-id',
+        target_inbound_message_id: 'message-id',
         label: 'Alex',
         normalized_label: 'alex',
         created_at: now,
@@ -158,6 +159,7 @@ describe('repository row mappers', () => {
     ).toEqual({
       id: 'label-id',
       userId: 'user-id',
+      targetInboundMessageId: 'message-id',
       label: 'Alex',
       normalizedLabel: 'alex',
       createdAt: now,

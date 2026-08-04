@@ -17,6 +17,9 @@ describe('loadConfig', () => {
     expect(config.OPENAI_REQUEST_TIMEOUT_MS).toBe(60000);
     expect(config.MAX_AUDIO_DURATION_SECONDS).toBe(600);
     expect(config.TRANSCRIPT_RETENTION_DAYS).toBe(30);
+    expect(config.AFTER_NOTE_LABEL_WINDOW_MINUTES).toBe(10);
+    expect(config.RENAME_LATEST_LABEL_WINDOW_HOURS).toBe(24);
+    expect(config.AUDIO_LABEL_GRACE_PERIOD_MS).toBe(4000);
     expect(config.WORKER_POLL_INTERVAL_MS).toBe(5000);
     expect(config.PROCESSING_JOB_TIMEOUT_MS).toBe(480000);
     expect(config.RETENTION_CLEANUP_INTERVAL_MS).toBe(3600000);

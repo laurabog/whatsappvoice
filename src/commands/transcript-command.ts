@@ -2,6 +2,7 @@ import { noTranscriptMessage } from './messages.js';
 
 export type TranscriptRecordForReply = {
   text: string;
+  fromLabel: string;
 };
 
 export function formatTranscriptReply(
@@ -13,12 +14,13 @@ export function formatTranscriptReply(
   }
 
   const maxBodyChars = Math.max(500, maxChunkChars);
-  const singleMessagePrefix = 'Transcript\n\n';
+  const heading = `Transcript from ${transcript.fromLabel}`;
+  const singleMessagePrefix = `${heading}\n\n`;
   if (transcript.text.length + singleMessagePrefix.length <= maxBodyChars) {
     return [`${singleMessagePrefix}${transcript.text}`];
   }
 
-  let chunkSize = maxBodyChars - 'Transcript 1/1\n\n'.length;
+  let chunkSize = maxBodyChars - `${heading} 1/1\n\n`.length;
   let chunks: string[] = [];
 
   while (true) {
@@ -27,7 +29,7 @@ export function formatTranscriptReply(
       chunks.push(transcript.text.slice(index, index + chunkSize));
     }
 
-    const widestPrefix = `Transcript ${chunks.length}/${chunks.length}\n\n`;
+    const widestPrefix = `${heading} ${chunks.length}/${chunks.length}\n\n`;
     const nextChunkSize = maxBodyChars - widestPrefix.length;
     if (nextChunkSize === chunkSize) {
       break;
@@ -36,5 +38,5 @@ export function formatTranscriptReply(
     chunkSize = nextChunkSize;
   }
 
-  return chunks.map((chunk, index) => `Transcript ${index + 1}/${chunks.length}\n\n${chunk}`);
+  return chunks.map((chunk, index) => `${heading} ${index + 1}/${chunks.length}\n\n${chunk}`);
 }

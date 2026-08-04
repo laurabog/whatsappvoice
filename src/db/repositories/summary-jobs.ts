@@ -75,16 +75,19 @@ export function mapSummaryJobRow(row: SummaryJobRow): SummaryJobRecord {
 
 export function createSummaryJobsRepository(db: DbClient) {
   return {
-    async createForInboundMessage(inboundMessageId: string): Promise<SummaryJobRecord> {
+    async createForInboundMessage(
+      inboundMessageId: string,
+      nextAttemptAt?: Date | null
+    ): Promise<SummaryJobRecord> {
       const result = await db.query<SummaryJobRow>(
         `
-          insert into summary_jobs (id, inbound_message_id, status)
-          values ($1, $2, 'queued')
+          insert into summary_jobs (id, inbound_message_id, status, next_attempt_at)
+          values ($1, $2, 'queued', coalesce($3::timestamptz, now()))
           on conflict (inbound_message_id) do update
             set updated_at = summary_jobs.updated_at
           returning *
         `,
-        [randomUUID(), inboundMessageId]
+        [randomUUID(), inboundMessageId, nextAttemptAt ?? null]
       );
 
       const row = result.rows[0];

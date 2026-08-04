@@ -34,7 +34,7 @@ export type AudioIntakeResult =
     };
 
 export type AudioIntakeDependencies = {
-  config: Pick<AppConfig, 'MAX_DAILY_MESSAGES_PER_USER'>;
+  config: Pick<AppConfig, 'MAX_DAILY_MESSAGES_PER_USER' | 'AUDIO_LABEL_GRACE_PERIOD_MS'>;
   whatsapp: WhatsAppTextSender;
   users: {
     upsertFromWhatsApp(input: {
@@ -62,7 +62,10 @@ export type AudioIntakeDependencies = {
     countAcceptedAudioForUserSince(userId: string, since: Date): Promise<number>;
   };
   summaryJobs: {
-    createForInboundMessage(inboundMessageId: string): Promise<SummaryJobRecord>;
+    createForInboundMessage(
+      inboundMessageId: string,
+      nextAttemptAt?: Date | null
+    ): Promise<SummaryJobRecord>;
   };
   outboundMessages: OutboundMessagesForSending;
   now?: () => Date;
@@ -155,7 +158,8 @@ export function createAudioIntakeHandler(dependencies: AudioIntakeDependencies) 
       }
 
       const job = await dependencies.summaryJobs.createForInboundMessage(
-        inboundResult.record.id
+        inboundResult.record.id,
+        new Date(now().getTime() + dependencies.config.AUDIO_LABEL_GRACE_PERIOD_MS)
       );
       const inboundMessage = await dependencies.inboundMessages.updateStatus(
         inboundResult.record.id,

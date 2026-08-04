@@ -27,8 +27,62 @@ export type SummaryOutput = {
 
 export type FormatSummaryReplyInput = {
   fromLabel: string;
+  receivedAt: Date;
+  now?: Date;
+  timeZone?: string;
   summary: SummaryOutput;
 };
+
+type DateParts = {
+  day: string;
+  month: string;
+  year: string;
+  hour: string;
+  minute: string;
+};
+
+function partsForDate(date: Date, timeZone: string): DateParts {
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  });
+  const parts = Object.fromEntries(
+    formatter.formatToParts(date).map((part) => [part.type, part.value])
+  );
+
+  return {
+    day: parts.day ?? '',
+    month: parts.month ?? '',
+    year: parts.year ?? '',
+    hour: parts.hour ?? '00',
+    minute: parts.minute ?? '00'
+  };
+}
+
+export function formatReceivedAt(
+  receivedAt: Date,
+  now = new Date(),
+  timeZone = 'Europe/Madrid'
+): string {
+  const received = partsForDate(receivedAt, timeZone);
+  const current = partsForDate(now, timeZone);
+  const time = `${received.hour}:${received.minute}`;
+
+  if (
+    received.day === current.day &&
+    received.month === current.month &&
+    received.year === current.year
+  ) {
+    return `today at ${time}`;
+  }
+
+  return `${received.day} ${received.month} ${received.year}, ${time}`;
+}
 
 function recommendationText(recommendation: ListeningRecommendation): string {
   if (recommendation === 'listen_soon') {
@@ -62,8 +116,8 @@ export function formatSummaryReply(input: FormatSummaryReplyInput): string[] {
 
   return [
     [
-      'Voice note summary',
-      `From: ${input.fromLabel}`,
+      `🎧 Voice note from ${input.fromLabel}`,
+      `Received: ${formatReceivedAt(input.receivedAt, input.now, input.timeZone)}`,
       '',
       input.summary.shortSummary,
       '',

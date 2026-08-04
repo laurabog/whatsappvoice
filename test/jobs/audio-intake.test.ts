@@ -92,7 +92,8 @@ function makeDependencies(overrides: {
   const job = makeJob();
   const dependencies = {
     config: {
-      MAX_DAILY_MESSAGES_PER_USER: 10
+      MAX_DAILY_MESSAGES_PER_USER: 10,
+      AUDIO_LABEL_GRACE_PERIOD_MS: 4000
     },
     whatsapp: {
       sendText: vi.fn(async (input: SendTextInput) => {
@@ -153,7 +154,10 @@ describe('createAudioIntakeHandler', () => {
       isVoiceNote: true,
       status: 'received'
     });
-    expect(dependencies.summaryJobs.createForInboundMessage).toHaveBeenCalledWith(inbound.id);
+    expect(dependencies.summaryJobs.createForInboundMessage).toHaveBeenCalledWith(
+      inbound.id,
+      new Date(now.getTime() + 4000)
+    );
     expect(sentMessages).toEqual([
       {
         to: '15551234567',

@@ -66,6 +66,7 @@ function makePendingLabel(): PendingSenderLabelRecord {
   return {
     id: 'label-1',
     userId: 'user-1',
+    targetInboundMessageId: null,
     label: 'Alex',
     normalizedLabel: 'alex',
     createdAt: now,
@@ -127,7 +128,7 @@ function makeDependencies(): {
       markCompleted: vi.fn(async () => ({}))
     },
     pendingSenderLabels: {
-      consumeLatestForUser: vi.fn(async () => {
+      consumeLatestForInboundMessage: vi.fn(async () => {
         const label = pendingLabel;
         pendingLabel = null;
         return label;
@@ -195,8 +196,9 @@ describe('createAudioMessageProcessor', () => {
       replyCount: 1
     });
 
-    expect(dependencies.pendingSenderLabels.consumeLatestForUser).toHaveBeenCalledWith(
+    expect(dependencies.pendingSenderLabels.consumeLatestForInboundMessage).toHaveBeenCalledWith(
       'user-1',
+      'inbound-1',
       now
     );
     expect(dependencies.summaries.insertIfNew).toHaveBeenCalledWith(
@@ -216,7 +218,7 @@ describe('createAudioMessageProcessor', () => {
     );
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0]?.to).toBe('15551234567');
-    expect(sentMessages[0]?.body).toContain('Voice note summary\nFrom: Alex');
+    expect(sentMessages[0]?.body).toContain('🎧 Voice note from Alex\nReceived: today at 14:00');
     expect(dependencies.jobStore.markCompleted).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId: 'job-1',
@@ -296,7 +298,7 @@ describe('createAudioMessageProcessor', () => {
     await expect(processor.processAudioMessage('job-1')).rejects.toThrow('summary failed');
 
     expect(cleanup).toHaveBeenCalledOnce();
-    expect(dependencies.pendingSenderLabels.consumeLatestForUser).not.toHaveBeenCalled();
+    expect(dependencies.pendingSenderLabels.consumeLatestForInboundMessage).not.toHaveBeenCalled();
     expect(dependencies.jobStore.markCompleted).not.toHaveBeenCalled();
   });
 

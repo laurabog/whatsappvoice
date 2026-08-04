@@ -62,7 +62,9 @@ function makeDependencies(overrides: Partial<CommandRouterDependencies> = {}) {
     config: {
       MAX_DAILY_MESSAGES_PER_USER: 10,
       MAX_TRANSCRIPT_REPLY_CHARS: 500,
-      PENDING_LABEL_TTL_MINUTES: 30
+      PENDING_LABEL_TTL_MINUTES: 30,
+      AFTER_NOTE_LABEL_WINDOW_MINUTES: 10,
+      RENAME_LATEST_LABEL_WINDOW_HOURS: 24
     },
     whatsapp: {
       sendText: vi.fn(async (input: SendTextInput) => {
@@ -115,7 +117,8 @@ function makeDependencies(overrides: Partial<CommandRouterDependencies> = {}) {
         inboundMessage.status = status;
         inboundMessage.errorCode = errorCode ?? null;
         return inboundMessage;
-      })
+      }),
+      findLatestQueuedOrProcessingAudioForUserSince: vi.fn(async () => null)
     },
     outboundMessages,
     pendingSenderLabels: {
@@ -124,10 +127,18 @@ function makeDependencies(overrides: Partial<CommandRouterDependencies> = {}) {
     },
     summaries: {
       countForUserSince: vi.fn(async () => 2),
-      softDeleteForUser: vi.fn(async () => 3)
+      softDeleteForUser: vi.fn(async () => 3),
+      findLatestActiveForUserSince: vi.fn(async () => null),
+      updateLabel: vi.fn(async () => ({
+        oneSentenceSummary: 'Latest one-sentence summary.'
+      }))
     },
     transcripts: {
-      findLatestAvailableForUser: vi.fn(async () => ({ text: 'Latest transcript.' })),
+      findLatestAvailableForUser: vi.fn(async () => ({
+        text: 'Latest transcript.',
+        fromLabel: 'Alex',
+        receivedAt: now
+      })),
       softDeleteForUser: vi.fn(async () => 4)
     },
     now: () => now,
@@ -222,7 +233,11 @@ describe('createCommandRouter', () => {
   it('returns the latest transcript in WhatsApp-sized chunks', async () => {
     const { dependencies, sentMessages, now } = makeDependencies({
       transcripts: {
-        findLatestAvailableForUser: vi.fn(async () => ({ text: 'a'.repeat(1200) })),
+        findLatestAvailableForUser: vi.fn(async () => ({
+          text: 'a'.repeat(1200),
+          fromLabel: 'Alex',
+          receivedAt: now
+        })),
         softDeleteForUser: vi.fn(async () => 0)
       }
     });
@@ -254,8 +269,8 @@ describe('createCommandRouter', () => {
       normalizedLabel: 'alex',
       expiresAt: new Date(now.getTime() + 30 * 60 * 1000)
     });
-    expect(sentMessages[0]?.body).toBe('Got it. I will label the next voice note as from Alex.');
-    expect([...outboundMessages.records.values()][0]?.replyKind).toBe('help');
+    expect(sentMessages[0]?.body).toBe('🏷️ Got it — I’ll label the next voice note as from Alex.');
+    expect([...outboundMessages.records.values()][0]?.replyKind).toBe('sender_label');
   });
 
   it('does not duplicate sender-label side effects or replies for duplicate text webhooks', async () => {
@@ -298,6 +313,158 @@ describe('createCommandRouter', () => {
     expect(sentMessages).toHaveLength(1);
   });
 
+  it('updates a recent completed summary from an after-note label', async () => {
+    const { dependencies, sentMessages, now } = makeDependencies({
+      summaries: {
+        countForUserSince: vi.fn(async () => 2),
+        softDeleteForUser: vi.fn(async () => 0),
+        findLatestActiveForUserSince: vi.fn(async () => ({
+          id: 'summary-1',
+          oneSentenceSummary: 'Alex asks about dinner.',
+          receivedAt: new Date(now.getTime() - 60_000)
+        })),
+        updateLabel: vi.fn(async () => ({
+          oneSentenceSummary: 'Alex asks about dinner.'
+        }))
+      }
+    });
+    const router = createCommandRouter(dependencies);
+
+    await expect(router.handleMessage(makeTextMessage('Laura sent this'))).resolves.toEqual({
+      handled: true,
+      command: 'sender_label'
+    });
+
+    expect(dependencies.summaries.findLatestActiveForUserSince).toHaveBeenCalledWith({
+      userId: 'user-1',
+      receivedAfter: new Date(now.getTime() - 10 * 60 * 1000),
+      now
+    });
+    expect(dependencies.summaries.updateLabel).toHaveBeenCalledWith({
+      summaryId: 'summary-1',
+      fromLabel: 'Laura',
+      fromLabelConfidence: 'user_provided'
+    });
+    expect(sentMessages[0]?.body).toBe(
+      '🏷️ Got it — I’ll remember the latest voice note as from Laura.\n\n“Alex asks about dinner.”'
+    );
+  });
+
+  it('targets a recent in-flight audio message from an after-note label', async () => {
+    const { dependencies, sentMessages, now } = makeDependencies({
+      inboundMessages: {
+        insertIfNew: vi.fn(async (input) => ({
+          record: {
+            id: 'inbound-text-1',
+            whatsappMessageId: input.whatsappMessageId,
+            userId: input.userId,
+            messageType: input.messageType,
+            receivedAt: now,
+            whatsappTimestamp: input.whatsappTimestamp ?? null,
+            mediaId: null,
+            mimeType: null,
+            isVoiceNote: null,
+            textBody: input.textBody ?? null,
+            status: input.status ?? 'received',
+            errorCode: null
+          },
+          inserted: true
+        })),
+        updateStatus: vi.fn(async (id, status, errorCode) => ({
+          id,
+          whatsappMessageId: 'wamid.text',
+          userId: 'user-1',
+          messageType: 'text',
+          receivedAt: now,
+          whatsappTimestamp: now,
+          mediaId: null,
+          mimeType: null,
+          isVoiceNote: null,
+          textBody: null,
+          status,
+          errorCode: errorCode ?? null
+        })),
+        findLatestQueuedOrProcessingAudioForUserSince: vi.fn(async () => ({
+          id: 'inbound-audio-1',
+          whatsappMessageId: 'wamid.audio',
+          userId: 'user-1',
+          messageType: 'audio',
+          receivedAt: now,
+          whatsappTimestamp: now,
+          mediaId: 'media-1',
+          mimeType: 'audio/ogg',
+          isVoiceNote: true,
+          textBody: null,
+          status: 'queued' as const,
+          errorCode: null
+        }))
+      }
+    });
+    const router = createCommandRouter(dependencies);
+
+    await expect(router.handleMessage(makeTextMessage('Laura sent this'))).resolves.toEqual({
+      handled: true,
+      command: 'sender_label'
+    });
+
+    expect(dependencies.pendingSenderLabels.createPendingLabel).toHaveBeenCalledWith({
+      userId: 'user-1',
+      label: 'Laura',
+      normalizedLabel: 'laura',
+      expiresAt: new Date(now.getTime() + 30 * 60 * 1000),
+      targetInboundMessageId: 'inbound-audio-1'
+    });
+    expect(sentMessages[0]?.body).toBe('🏷️ Got it — I’ll label that voice note as from Laura.');
+  });
+
+  it('treats after-note labels as unsupported when there is no recent target', async () => {
+    const { dependencies, sentMessages } = makeDependencies();
+    const router = createCommandRouter(dependencies);
+
+    await expect(router.handleMessage(makeTextMessage('Laura sent this'))).resolves.toEqual({
+      handled: true,
+      command: 'unsupported_text'
+    });
+
+    expect(dependencies.pendingSenderLabels.createPendingLabel).not.toHaveBeenCalled();
+    expect(dependencies.summaries.updateLabel).not.toHaveBeenCalled();
+    expect(sentMessages[0]?.body).toBe(unsupportedMessage);
+  });
+
+  it('renames the latest summary with a longer explicit correction window', async () => {
+    const { dependencies, now } = makeDependencies({
+      summaries: {
+        countForUserSince: vi.fn(async () => 2),
+        softDeleteForUser: vi.fn(async () => 0),
+        findLatestActiveForUserSince: vi.fn(async () => ({
+          id: 'summary-1',
+          oneSentenceSummary: 'Alex asks about dinner.',
+          receivedAt: new Date(now.getTime() - 23 * 60 * 60 * 1000)
+        })),
+        updateLabel: vi.fn(async () => ({
+          oneSentenceSummary: 'Alex asks about dinner.'
+        }))
+      }
+    });
+    const router = createCommandRouter(dependencies);
+
+    await expect(router.handleMessage(makeTextMessage('rename latest Laura'))).resolves.toEqual({
+      handled: true,
+      command: 'sender_label'
+    });
+
+    expect(dependencies.summaries.findLatestActiveForUserSince).toHaveBeenCalledWith({
+      userId: 'user-1',
+      receivedAfter: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+      now
+    });
+    expect(dependencies.summaries.updateLabel).toHaveBeenCalledWith({
+      summaryId: 'summary-1',
+      fromLabel: 'Laura',
+      fromLabelConfidence: 'user_provided'
+    });
+  });
+
   it('replies helpfully to unsupported text', async () => {
     const { dependencies, sentMessages, outboundMessages } = makeDependencies();
     const router = createCommandRouter(dependencies);
@@ -308,6 +475,6 @@ describe('createCommandRouter', () => {
     });
 
     expect(sentMessages[0]?.body).toBe(unsupportedMessage);
-    expect([...outboundMessages.records.values()][0]?.replyKind).toBe('help');
+    expect([...outboundMessages.records.values()][0]?.replyKind).toBe('unsupported_text');
   });
 });

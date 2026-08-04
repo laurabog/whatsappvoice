@@ -14,3 +14,13 @@ describe('initial migration', () => {
     expect(sql).toContain('unique index if not exists outbound_messages_idempotency_idx');
   });
 });
+
+describe('targeted sender labels migration', () => {
+  it('adds targeted pending labels without creating a new table', async () => {
+    const sql = await readFile('migrations/0003_targeted_sender_labels.sql', 'utf8');
+
+    expect(sql).toContain('target_inbound_message_id');
+    expect(sql).toContain('pending_sender_labels_target_unconsumed_idx');
+    expect(sql).toContain('references inbound_messages(id)');
+  });
+});

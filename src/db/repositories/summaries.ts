@@ -20,6 +20,10 @@ export type SummaryRecord = {
   deletedAt: Date | null;
 };
 
+export type SummaryRecordWithReceivedAt = SummaryRecord & {
+  receivedAt: Date;
+};
+
 export type InsertSummaryInput = {
   userId: string;
   inboundMessageId: string;
@@ -169,6 +173,60 @@ export function createSummariesRepository(db: DbClient) {
     },
 
     findByInboundMessageId,
+
+    async findLatestActiveForUserSince(input: {
+      userId: string;
+      receivedAfter: Date;
+      now: Date;
+    }): Promise<SummaryRecordWithReceivedAt | null> {
+      const result = await db.query<SummaryRow & { display_received_at: Date }>(
+        `
+          select s.*, coalesce(i.whatsapp_timestamp, i.received_at) as display_received_at
+          from summaries s
+          join inbound_messages i on i.id = s.inbound_message_id
+          where s.user_id = $1
+            and s.deleted_at is null
+            and s.expires_at > $2
+            and coalesce(i.whatsapp_timestamp, i.received_at) >= $3
+          order by coalesce(i.whatsapp_timestamp, i.received_at) desc, s.created_at desc
+          limit 1
+        `,
+        [input.userId, input.now, input.receivedAfter]
+      );
+
+      const row = result.rows[0];
+      return row
+        ? {
+            ...mapSummaryRow(row),
+            receivedAt: row.display_received_at
+          }
+        : null;
+    },
+
+    async updateLabel(input: {
+      summaryId: string;
+      fromLabel: string;
+      fromLabelConfidence: string;
+    }): Promise<SummaryRecord> {
+      const result = await db.query<SummaryRow>(
+        `
+          update summaries
+          set from_label = $2,
+              from_label_confidence = $3
+          where id = $1
+            and deleted_at is null
+          returning *
+        `,
+        [input.summaryId, input.fromLabel, input.fromLabelConfidence]
+      );
+
+      const row = result.rows[0];
+      if (!row) {
+        throw new Error(`Summary ${input.summaryId} was not found`);
+      }
+
+      return mapSummaryRow(row);
+    },
 
     async countForUserSince(userId: string, since: Date): Promise<number> {
       const result = await db.query<{ count: string }>(
