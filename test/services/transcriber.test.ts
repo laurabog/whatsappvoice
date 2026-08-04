@@ -48,6 +48,46 @@ describe('OpenAITranscriber', () => {
     );
   });
 
+  it('retries transient OpenAI network errors when transcribing', async () => {
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error('socket reset'), {
+        cause: {
+          code: 'ECONNRESET'
+        }
+      }))
+      .mockResolvedValueOnce({
+        text: '  Retry worked.  '
+      });
+    const client = {
+      audio: {
+        transcriptions: {
+          create
+        }
+      }
+    } as unknown as OpenAI;
+    const transcriber = new OpenAITranscriber(
+      {
+        OPENAI_API_KEY: undefined,
+        OPENAI_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe'
+      },
+      client
+    );
+
+    await expect(
+      transcriber.transcribe({
+        audioPath: 'test/fixtures/whatsapp-audio-webhook.json',
+        mimeType: 'audio/ogg',
+        language: 'en'
+      })
+    ).resolves.toMatchObject({
+      text: 'Retry worked.',
+      provider: 'openai'
+    });
+
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
   it('requires a local audio path', async () => {
     const transcriber = new OpenAITranscriber(
       {

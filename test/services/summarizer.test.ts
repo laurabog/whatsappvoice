@@ -175,6 +175,36 @@ describe('OpenAISummarizer', () => {
     expect(client.responses.parse).toHaveBeenCalledTimes(1);
   });
 
+  it('does not wrap exhausted OpenAI network errors as schema errors', async () => {
+    const networkError = Object.assign(new Error('socket reset'), {
+      cause: {
+        code: 'ECONNRESET'
+      }
+    });
+    const client = {
+      responses: {
+        parse: vi.fn(async () => {
+          throw networkError;
+        })
+      }
+    } as unknown as OpenAI;
+    const summarizer = new OpenAISummarizer(
+      {
+        OPENAI_API_KEY: undefined,
+        OPENAI_SUMMARY_MODEL: 'gpt-4o-mini'
+      },
+      client
+    );
+
+    await expect(
+      summarizer.summarize({
+        transcript: 'A transcript.'
+      })
+    ).rejects.toBe(networkError);
+
+    expect(client.responses.parse).toHaveBeenCalledTimes(3);
+  });
+
   it('requires an API key when no client is injected', () => {
     expect(
       () =>

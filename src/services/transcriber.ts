@@ -1,6 +1,7 @@
 import { createReadStream } from 'node:fs';
 import OpenAI from 'openai';
 import type { AppConfig } from '../config.js';
+import { retryOpenAIRequest } from './openai-retry.js';
 
 export type TranscriptionInput = {
   mediaId?: string;
@@ -61,13 +62,16 @@ export class OpenAITranscriber implements Transcriber {
       throw new Error('audioPath is required for OpenAI transcription');
     }
 
+    const audioPath = input.audioPath;
     const startedAt = Date.now();
-    const response = await this.client.audio.transcriptions.create({
-      file: createReadStream(input.audioPath),
-      model: this.model,
-      language: input.language,
-      response_format: 'json'
-    });
+    const response = await retryOpenAIRequest(() =>
+      this.client.audio.transcriptions.create({
+        file: createReadStream(audioPath),
+        model: this.model,
+        language: input.language,
+        response_format: 'json'
+      })
+    );
     const text = response.text.trim();
 
     if (!text) {

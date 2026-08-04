@@ -3,6 +3,7 @@ import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import type { AppConfig } from '../config.js';
 import type { SummaryOutput } from './reply-formatter.js';
+import { isRetryableOpenAIError, retryOpenAIRequest } from './openai-retry.js';
 
 export type SummarizerInput = {
   transcript: string;
@@ -143,27 +144,29 @@ export class OpenAISummarizer implements Summarizer {
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const response = await this.client.responses.parse({
-          model: this.model,
-          input: [
-            {
-              role: 'system',
-              content: summarySystemPrompt
-            },
-            {
-              role: 'user',
-              content: [
-                'Summarize this transcript.',
-                '',
-                'Transcript:',
-                input.transcript
-              ].join('\n')
+        const response = await retryOpenAIRequest(() =>
+          this.client.responses.parse({
+            model: this.model,
+            input: [
+              {
+                role: 'system',
+                content: summarySystemPrompt
+              },
+              {
+                role: 'user',
+                content: [
+                  'Summarize this transcript.',
+                  '',
+                  'Transcript:',
+                  input.transcript
+                ].join('\n')
+              }
+            ],
+            text: {
+              format: zodTextFormat(summaryModelOutputSchema, 'voice_note_summary')
             }
-          ],
-          text: {
-            format: zodTextFormat(summaryModelOutputSchema, 'voice_note_summary')
-          }
-        });
+          })
+        );
 
         if (!response.output_parsed) {
           throw new Error('OpenAI summary response did not include parsed output');
@@ -171,7 +174,7 @@ export class OpenAISummarizer implements Summarizer {
 
         return summaryOutputFromModelOutput(response.output_parsed);
       } catch (error) {
-        if (isOpenAIClientError(error)) {
+        if (isOpenAIClientError(error) || isRetryableOpenAIError(error)) {
           throw error;
         }
 
